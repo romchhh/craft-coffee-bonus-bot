@@ -70,27 +70,33 @@ h1 {
   line-height: 1.45;
 }
 
-.preview {
-  text-align: center;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: 0.2px;
-  padding: 16px;
-  border-radius: 18px;
-  background: var(--soft);
-  border: 1px solid var(--edge);
-  margin-bottom: 18px;
-  font-variant-numeric: tabular-nums;
-}
-
 .date-card {
+  position: relative;
   margin-bottom: 22px;
   padding: 20px 18px;
   border-radius: 24px;
   border: 1px solid var(--edge);
   background: #fff;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+}
+
+.date-card-picker {
+  cursor: pointer;
+}
+
+.preview {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  padding: 22px 16px;
+  border-radius: 18px;
+  background: var(--soft);
+  border: 1px solid var(--edge);
+  margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .date-label {
@@ -104,26 +110,22 @@ h1 {
 }
 
 .date-native {
-  display: block;
-  width: 100%;
-  min-height: 56px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid var(--edge);
-  background: var(--soft);
-  color: var(--ink);
   font: inherit;
-  font-size: 20px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
   -webkit-appearance: none;
   appearance: none;
 }
 
-.date-native:focus {
-  outline: none;
-  border-color: rgba(0, 0, 0, 0.22);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
+.date-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
 }
 
 .date-hint {

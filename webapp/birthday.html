@@ -19,25 +19,20 @@
       <p>Обери дату в календарі — надішлемо приємний подарунок у твій день</p>
     </header>
 
-    <div class="preview" id="preview" aria-live="polite">—</div>
-
-    <div class="date-card">
+    <div class="date-card date-card-picker">
       <label class="date-label" for="birthday-input">День народження</label>
+      <div class="preview" id="preview" aria-live="polite">ДД.ММ.РРРР</div>
       <input
         type="date"
         id="birthday-input"
-        class="date-native"
+        class="date-native date-overlay"
         autocomplete="bday"
         required
       />
-      <p class="date-hint">Натисни на поле — відкриється зручний вибір дати на твоєму телефоні</p>
+      <p class="date-hint">Календар відкриється автоматично. Після вибору дату збережемо одразу.</p>
     </div>
 
     <div class="actions">
-      <button type="button" class="btn primary" id="confirm-btn">
-        <i data-lucide="check"></i>
-        Підтвердити
-      </button>
       <button type="button" class="btn ghost" id="skip-btn">
         Пропустити
       </button>

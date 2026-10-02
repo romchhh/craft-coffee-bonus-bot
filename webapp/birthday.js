@@ -13,13 +13,9 @@
     } catch (_) {}
   }
 
-  const MONTHS = [
-    "січня", "лютого", "березня", "квітня", "травня", "червня",
-    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
-  ];
-
   const input = document.getElementById("birthday-input");
   const preview = document.getElementById("preview");
+  let submitted = false;
 
   function bounds() {
     const now = new Date();
@@ -31,20 +27,17 @@
       const day = String(d.getDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
     };
-    return { min: toIso(min), max: toIso(max), defaultValue: "1995-06-15" };
+    return { min: toIso(min), max: toIso(max) };
   }
 
   function displayFromIso(iso) {
     const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return "—";
-    const day = Number(m[3]);
-    const month = Number(m[2]) - 1;
-    const year = m[1];
-    return `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.${year} · ${day} ${MONTHS[month]} ${year}`;
+    if (!m) return "ДД.ММ.РРРР";
+    return `${m[3]}.${m[2]}.${m[1]}`;
   }
 
   function updatePreview() {
-    preview.textContent = input.value ? displayFromIso(input.value) : "—";
+    preview.textContent = input.value ? displayFromIso(input.value) : "ДД.ММ.РРРР";
   }
 
   function send(payload) {
@@ -56,32 +49,52 @@
     alert(data);
   }
 
-  const { min, max, defaultValue } = bounds();
-  input.min = min;
-  input.max = max;
-  input.value = defaultValue;
-  updatePreview();
-
-  input.addEventListener("input", updatePreview);
-  input.addEventListener("change", updatePreview);
-
-  document.getElementById("confirm-btn").addEventListener("click", () => {
+  function submitIfReady() {
     const iso = (input.value || "").trim();
-    if (!iso) {
-      preview.textContent = "Обери дату в календарі";
-      input.focus();
-      return;
-    }
+    if (!iso || submitted) return;
+    submitted = true;
+    preview.textContent = displayFromIso(iso);
     send({
       type: "birthday",
       birthday: iso,
-      display: displayFromIso(iso).split(" · ")[0],
+      display: displayFromIso(iso),
     });
+  }
+
+  function openPicker() {
+    if (submitted) return;
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+      }
+    } catch (_) {}
+    input.focus({ preventScroll: true });
+    try {
+      input.click();
+    } catch (_) {}
+  }
+
+  const { min, max } = bounds();
+  input.min = min;
+  input.max = max;
+  updatePreview();
+
+  input.addEventListener("input", updatePreview);
+  input.addEventListener("change", () => {
+    updatePreview();
+    submitIfReady();
   });
 
   document.getElementById("skip-btn").addEventListener("click", () => {
+    if (submitted) return;
+    submitted = true;
     send({ type: "birthday", birthday: null, skip: true });
   });
+
+  const scheduleOpen = () => setTimeout(openPicker, 350);
+  scheduleOpen();
+  window.addEventListener("pageshow", scheduleOpen);
 
   if (window.lucide?.createIcons) {
     window.lucide.createIcons({ attrs: { "stroke-width": 2.2 } });

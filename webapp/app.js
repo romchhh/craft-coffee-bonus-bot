@@ -120,11 +120,6 @@
     return v.toLocaleString("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " грн";
   };
 
-  const MONTHS_UA = [
-    "січня", "лютого", "березня", "квітня", "травня", "червня",
-    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
-  ];
-
   const hasBirthday = (raw) => Boolean(raw && raw !== "0000-00-00");
 
   const birthdayBounds = () => {
@@ -139,17 +134,24 @@
   const fmtBirthday = (raw) => {
     if (!hasBirthday(raw)) return "не вказано";
     const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (m) {
-      const day = Number(m[3]);
-      const month = Number(m[2]) - 1;
-      const year = m[1];
-      return `${day} ${MONTHS_UA[month]} ${year}`;
-    }
+    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
     const dmy = String(raw).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if (dmy) {
-      return `${Number(dmy[1])} ${MONTHS_UA[Number(dmy[2]) - 1]} ${dmy[3]}`;
-    }
+    if (dmy) return `${dmy[1]}.${dmy[2]}.${dmy[3]}`;
     return String(raw);
+  };
+
+  const openDatePicker = (el) => {
+    if (!el) return;
+    try {
+      if (typeof el.showPicker === "function") {
+        el.showPicker();
+        return;
+      }
+    } catch (_) {}
+    el.focus({ preventScroll: true });
+    try {
+      el.click();
+    } catch (_) {}
   };
 
   const fmtDateTime = (raw) => {
@@ -523,11 +525,11 @@
               hasBirthday(me.birthday)
                 ? `<div class="value">${escapeHtml(fmtBirthday(me.birthday))}</div>`
                 : `<div class="value muted">Не вказано</div>
-                   <p class="birthday-add-hint">Додай дату — приготуємо приємність у твій день 🎂</p>
-                   <div class="birthday-add-row">
-                     <input type="date" id="profile-birthday" class="date-native" autocomplete="bday"
+                   <p class="birthday-add-hint">Обери дату в календарі — збережемо одразу 🎂</p>
+                   <div class="birthday-add-row birthday-picker-wrap">
+                     <div class="birthday-picker-preview" id="profile-birthday-preview">ДД.ММ.РРРР</div>
+                     <input type="date" id="profile-birthday" class="date-native date-native-overlay" autocomplete="bday"
                        min="${birthdayBounds().min}" max="${birthdayBounds().max}" />
-                     <button type="button" class="birthday-save-btn" id="save-birthday-btn">Зберегти</button>
                    </div>
                    <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`
             }
@@ -840,35 +842,36 @@
       });
     });
 
-    const saveBirthdayBtn = document.getElementById("save-birthday-btn");
     const birthdayInput = document.getElementById("profile-birthday");
+    const birthdayPreview = document.getElementById("profile-birthday-preview");
     const birthdayError = document.getElementById("birthday-error");
-    if (saveBirthdayBtn && birthdayInput) {
-      saveBirthdayBtn.addEventListener("click", async () => {
+    if (birthdayInput) {
+      const syncPreview = () => {
+        if (!birthdayPreview) return;
         const iso = (birthdayInput.value || "").trim();
-        if (!iso) {
-          if (birthdayError) {
-            birthdayError.textContent = "Обери дату в календарі";
-            birthdayError.classList.remove("hidden");
-          }
-          birthdayInput.focus();
-          return;
-        }
-        saveBirthdayBtn.disabled = true;
+        birthdayPreview.textContent = iso ? fmtBirthday(iso) : "ДД.ММ.РРРР";
+      };
+      syncPreview();
+      birthdayInput.addEventListener("input", syncPreview);
+      birthdayInput.addEventListener("change", async () => {
+        const iso = (birthdayInput.value || "").trim();
+        if (!iso) return;
+        syncPreview();
+        birthdayInput.disabled = true;
         if (birthdayError) birthdayError.classList.add("hidden");
         try {
           const res = await apiPost("/me/birthday", { birthday: iso });
           if (state.me) state.me.birthday = res.birthday;
           render();
         } catch (err) {
+          birthdayInput.disabled = false;
           if (birthdayError) {
             birthdayError.textContent = err.message || "Не вдалося зберегти";
             birthdayError.classList.remove("hidden");
           }
-        } finally {
-          saveBirthdayBtn.disabled = false;
         }
       });
+      setTimeout(() => openDatePicker(birthdayInput), 350);
     }
   }
 
