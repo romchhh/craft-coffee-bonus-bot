@@ -11,7 +11,10 @@ from config import (
     LOYALTY_CRON_LOOKBACK_DAYS,
 )
 from database_functions.client_db import registered_poster_client_ids
-from database_functions.settings_db import is_transaction_processed
+from database_functions.settings_db import (
+    is_transaction_processed,
+    mark_transaction_ignored,
+)
 from services import poster
 from services.loyalty import process_closed_transaction
 
@@ -69,7 +72,7 @@ async def scan_closed_transactions(
         return report
 
     report["poster_transactions"] = len(txs)
-    report["other_client_receipts"] = []
+    report["ignored_external"] = 0
     seen: set[str] = set()
 
     for tx in txs:
@@ -79,26 +82,21 @@ async def scan_closed_transactions(
             continue
         seen.add(tid)
 
-        if cid not in bot_clients:
-            if cid:
-                report["other_client_receipts"].append(
-                    {
-                        "transaction_id": tid,
-                        "client_id": cid,
-                        "status": tx.get("status"),
-                        "payed_uah": poster.from_minor(tx.get("payed_sum")),
-                        "bonus_spent_uah": poster.from_minor(tx.get("payed_bonus") or 0),
-                        "closed_at": tx.get("date_close_date") or tx.get("date_close"),
-                    }
-                )
-            continue
-
-        report["bot_client_receipts"] += 1
-
         if is_transaction_processed(tid):
             report["skipped"].append(tid)
             continue
 
+        if cid not in bot_clients:
+            mark_transaction_ignored(
+                tid,
+                poster_client_id=cid or None,
+                payed_sum_uah=poster.from_minor(tx.get("payed_sum")),
+                bonus_spent_uah=poster.from_minor(tx.get("payed_bonus") or 0),
+            )
+            report["ignored_external"] += 1
+            continue
+
+        report["bot_client_receipts"] += 1
         report["pending"].append(tid)
         payed = poster.from_minor(tx.get("payed_sum"))
         log.info(
@@ -130,31 +128,32 @@ async def scan_closed_transactions(
     ok_count = sum(
         1 for p in report["processed"] if (p.get("result") or {}).get("status") == "ok"
     )
-    has_work = bool(report["pending"] or report["errors"] or ok_count)
-    if has_work or report["bot_client_receipts"]:
+    has_work = bool(
+        report["pending"]
+        or report["errors"]
+        or ok_count
+        or report.get("ignored_external")
+    )
+    if has_work:
         log.info(
-            "loyalty cron scan done: poster_txs=%s bot_receipts=%s pending=%s credited=%s skipped=%s errors=%s",
+            "loyalty cron scan: poster_txs=%s bot_receipts=%s pending=%s credited=%s "
+            "skipped=%s ignored_external=%s errors=%s",
             report["poster_transactions"],
             report["bot_client_receipts"],
             len(report["pending"]),
             ok_count,
             len(report["skipped"]),
+            report.get("ignored_external", 0),
             len(report["errors"]),
         )
     else:
         log.debug(
-            "loyalty cron scan idle: poster_txs=%s bot_clients=%s",
+            "loyalty cron idle: poster_txs=%s bot_clients=%s",
             report["poster_transactions"],
-            sorted(bot_clients),
+            len(bot_clients),
         )
     if report["pending"] and dry_run:
         log.info("loyalty cron pending tx ids: %s", report["pending"])
-    if report["other_client_receipts"] and not report["bot_client_receipts"]:
-        log.info(
-            "loyalty cron: чеки є, але client_id не з бота %s — скануй штрихкод на касі. %s",
-            sorted(bot_clients),
-            report["other_client_receipts"],
-        )
     return report
 
 
@@ -164,7 +163,7 @@ async def _cron_loop(bot) -> None:
     tick = 0
     while not _cron_stop.is_set():
         tick += 1
-        log.info(
+        log.debug(
             "loyalty cron tick #%s (кожні %s с, lookback %s дн.)",
             tick,
             LOYALTY_CRON_INTERVAL_SEC,

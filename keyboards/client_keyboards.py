@@ -82,8 +82,17 @@ def get_manager_keyboard():
     )
 
 
+def get_about_keyboard():
+    from Content.locations import INSTAGRAM_URL
+
+    rows = []
+    if INSTAGRAM_URL:
+        rows.append([InlineKeyboardButton(text="📸 Instagram", url=INSTAGRAM_URL)])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
 def get_socials_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[])
+    return get_about_keyboard() or InlineKeyboardMarkup(inline_keyboard=[])
 
 
 async def set_webapp_menu(bot):

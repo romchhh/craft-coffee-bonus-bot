@@ -134,6 +134,24 @@ def mark_transaction_processed(
     conn.commit()
 
 
+def mark_transaction_ignored(
+    transaction_id: str | int,
+    *,
+    poster_client_id: int | None = None,
+    payed_sum_uah: float = 0,
+    bonus_spent_uah: float = 0,
+) -> None:
+    """Чек переглянуто, бонуси не нараховуємо (не клієнт бота тощо)."""
+    mark_transaction_processed(
+        transaction_id,
+        poster_client_id=poster_client_id,
+        telegram_user_id=None,
+        payed_sum_uah=payed_sum_uah,
+        bonus_uah=0,
+        bonus_spent_uah=bonus_spent_uah,
+    )
+
+
 def list_bonus_accruals_for_user(telegram_user_id: int, limit: int = 40) -> list[dict]:
     rows = cursor.execute(
         """

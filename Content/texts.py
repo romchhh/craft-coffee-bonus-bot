@@ -68,9 +68,12 @@ def get_already_registered(name: str | None = None) -> str:
 
 
 def get_about_text() -> str:
+    from Content.locations import locations_text_html
+
     return (
-        "<b>Craft Coffee</b>\n\n"
-        "Крафтова кава, затишна атмосфера та програма лояльності з бонусами за кожну покупку."
+        "<b>Крафт · Craft Coffee</b>\n\n"
+        "Крафтова кава в Броварах, затишна атмосфера та бонуси за кожну покупку.\n\n"
+        f"{locations_text_html()}"
     )
 
 

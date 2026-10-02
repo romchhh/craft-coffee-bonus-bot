@@ -974,6 +974,56 @@ body.barcode-modal-open .surface {
   font-weight: 800;
 }
 
+.spots-instagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
+  background: linear-gradient(135deg, #fdf497 0%, #fd5949 45%, #d6249f 100%);
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.spots-instagram svg {
+  width: 20px;
+  height: 20px;
+}
+
+.spot-card-action {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.spot-card-action:active {
+  transform: scale(0.99);
+}
+
+.spot-open-map {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.spot-open-map svg {
+  width: 14px;
+  height: 14px;
+}
+
 .menu-page {
   margin: 0 -2px;
 }

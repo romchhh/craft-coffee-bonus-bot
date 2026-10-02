@@ -524,19 +524,29 @@
 
   function renderSpots() {
     const spots = state.spots || [];
+    const ig = state.spotsInstagram || appMeta?.instagram_url || "";
     let html = `<div class="section-title"><div class="title-ico">${icon("map-pin")}</div><h2>Наші точки</h2></div>`;
-    if (!spots.length) {
-      return html + `<div class="empty"><div class="empty-ico">${icon("map")}</div><p class="muted">Поки немає точок у Poster</p></div>`;
+    if (ig) {
+      html += `<a class="spots-instagram" href="${escapeHtml(ig)}" target="_blank" rel="noopener">
+        ${icon("instagram")} Шукай нас в Instagram
+      </a>`;
     }
-    html += spots.map((s, i) => `
-      <div class="spot-card" style="animation-delay:${i * 0.05}s">
+    if (!spots.length) {
+      return html + `<div class="empty"><div class="empty-ico">${icon("map")}</div><p class="muted">Адреси скоро з’являться</p></div>`;
+    }
+    html += spots.map((s, i) => {
+      const maps = s.maps_url ? ` data-maps-url="${escapeHtml(s.maps_url)}"` : "";
+      const tag = s.maps_url ? "button" : "div";
+      return `
+      <${tag} type="button" class="spot-card spot-card-action" style="animation-delay:${i * 0.05}s"${maps}>
         <div class="ico">${icon("store")}</div>
         <div>
           <h3>${escapeHtml(s.name)}</h3>
-          <div class="muted">${escapeHtml(s.address || "Адресу уточнюйте в закладі")}</div>
+          <div class="muted">${escapeHtml(s.address || "—")}</div>
+          ${s.maps_url ? `<span class="spot-open-map">${icon("navigation")} Маршрут</span>` : ""}
         </div>
-      </div>
-    `).join("");
+      </${tag}>`;
+    }).join("");
     return html;
   }
 
@@ -821,16 +831,24 @@
       });
     });
 
+    const openExternal = (url) => {
+      if (!url) return;
+      try {
+        if (tg?.openLink) tg.openLink(url);
+        else window.open(url, "_blank", "noopener");
+      } catch (_) {
+        window.location.href = url;
+      }
+    };
+
     content.querySelectorAll("[data-maps-url]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const url = btn.getAttribute("data-maps-url");
-        if (!url) return;
-        try {
-          if (tg?.openLink) tg.openLink(url);
-          else window.open(url, "_blank", "noopener");
-        } catch (_) {
-          window.location.href = url;
-        }
+      btn.addEventListener("click", () => openExternal(btn.getAttribute("data-maps-url")));
+    });
+
+    content.querySelectorAll(".spots-instagram").forEach((link) => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        openExternal(link.getAttribute("href"));
       });
     });
 
@@ -893,6 +911,7 @@
     try {
       const [spots, history] = await Promise.all([api("/spots"), api("/history")]);
       state.spots = spots.items || [];
+      state.spotsInstagram = spots.instagram_url || "";
       state.history = history;
       if (state.tab === "spots" || state.tab === "history") render();
     } catch (e) {

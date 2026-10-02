@@ -19,6 +19,7 @@ from keyboards.client_keyboards import (
     get_birthday_keyboard,
     get_open_card_inline,
     get_manager_keyboard,
+    get_about_keyboard,
     set_webapp_menu,
 )
 from Content.texts import (
@@ -46,6 +47,7 @@ from database_functions.create_dbs import create_dbs
 from database_functions.links_db import increment_link_count
 from states.client_states import Registration
 from services import poster
+from utils.filters import IsAdmin, NotRegistered
 from services.barcode_image import render_card_barcode_png
 
 log = logging.getLogger(__name__)
@@ -417,7 +419,12 @@ async def about(message: types.Message):
     if not is_registered(message.from_user.id):
         await _prompt_need_card(message)
         return
-    await message.answer(get_about_text(), parse_mode="HTML")
+    await message.answer(
+        get_about_text(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=get_about_keyboard(),
+    )
 
 
 @router.message(F.text == "🎁 Бонуси")
@@ -465,23 +472,12 @@ async def webapp_data_outside_flow(message: types.Message):
     )
 
 
-@router.message(StateFilter(None), ~F.text.startswith("/"))
+@router.message(StateFilter(None), ~F.text.startswith("/"), NotRegistered(), ~IsAdmin())
 async def guest_without_card(message: types.Message):
-    """Користувач без картки пише щось поза реєстрацією."""
+    """Користувач без картки пише щось поза реєстрацією (не перехоплює адмінку)."""
     if not message.from_user or not message.text:
         return
-    if message.text in {
-        "✅ Оформити картку",
-        "☕ Про Craft Coffee",
-        "🎁 Бонуси",
-        "💬 Підтримка",
-        "🪪 Моя картка",
-        "👨‍💻 Адмін панель",
-    }:
-        return
     await _ensure_user(message)
-    if is_registered(message.from_user.id):
-        return
     await _prompt_need_card(message)
 
 

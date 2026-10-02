@@ -93,11 +93,14 @@ async def api_meta(_request: web.Request) -> web.Response:
     """Публічні дані для мініапу (посилання на бота для реєстрації)."""
     username = (BOT_USERNAME or "").strip().lstrip("@")
     bot_url = f"https://t.me/{username}" if username else None
+    from Content.locations import INSTAGRAM_URL
+
     return web.json_response(
         {
             "bot_username": username or None,
             "bot_url": bot_url,
             "start_url": f"{bot_url}?start=card" if bot_url else None,
+            "instagram_url": INSTAGRAM_URL,
         }
     )
 
@@ -413,20 +416,14 @@ async def api_poster_media(request: web.Request) -> web.Response:
 
 async def api_spots(request: web.Request) -> web.Response:
     _auth_user(request)
-    try:
-        spots = poster.get_spots()
-    except Exception as exc:
-        log.exception("spots")
-        return web.json_response({"error": str(exc)}, status=502)
-    items = [
+    from Content.locations import INSTAGRAM_URL, locations_for_api
+
+    return web.json_response(
         {
-            "id": int(s.get("spot_id")),
-            "name": s.get("spot_name") or s.get("name") or f"Точка {s.get('spot_id')}",
-            "address": s.get("spot_adress") or s.get("spot_address") or "",
+            "items": locations_for_api(),
+            "instagram_url": INSTAGRAM_URL,
         }
-        for s in spots
-    ]
-    return web.json_response({"items": items})
+    )
 
 
 async def api_menu(request: web.Request) -> web.Response:
