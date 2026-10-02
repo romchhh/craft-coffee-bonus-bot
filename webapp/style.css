@@ -821,49 +821,62 @@ body.barcode-modal-open .surface {
   font-weight: 500;
 }
 
-.birthday-add-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: stretch;
-  margin-top: 4px;
+.birthday-profile-picker {
+  margin-top: 8px;
 }
 
-.birthday-picker-wrap {
-  display: contents;
-}
-
-.birthday-picker-preview {
-  min-height: 48px;
+.birthday-profile-picker .birthday-picker-preview {
+  margin-bottom: 10px;
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--edge);
   background: var(--soft);
-  font: inherit;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   text-align: center;
-  color: var(--ink);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
 }
 
-.date-native-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  pointer-events: none;
+.birthday-profile-picker .date-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.birthday-profile-picker .date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.birthday-profile-picker .date-field span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--sub);
+}
+
+.birthday-profile-picker .date-field select {
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--edge);
+  background: var(--soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .birthday-save-btn {
+  width: 100%;
   min-height: 48px;
   padding: 0 16px;
   border: 0;
@@ -873,7 +886,6 @@ body.barcode-modal-open .surface {
   font: inherit;
   font-size: 14px;
   font-weight: 800;
-  white-space: nowrap;
 }
 
 .birthday-save-btn:disabled {

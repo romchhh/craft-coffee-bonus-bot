@@ -1,13 +1,21 @@
 from database_functions.settings_db import get_welcome_bonus_uah, get_cashback_percent
 
 
+def get_need_card_first() -> str:
+    return (
+        "🪪 <b>Спочатку оформи картку лояльності</b>\n\n"
+        "Без неї не працюють бонуси, мініап і історія покупок.\n"
+        "Натисни <b>«Оформити картку»</b> або /start — займе близько хвилини."
+    )
+
+
 def get_greeting_message(name: str | None = None) -> str:
     hello = f", {name}" if name else ""
     return (
         f"☕ <b>Вітаємо в Craft Coffee{hello}!</b>\n\n"
         "Ми — кав’ярня <b>Craft Coffee</b>. "
-        "Тут твоя цифрова картка лояльності, бонуси та історія улюблених напоїв.\n\n"
-        "Давай швидко оформимо картку — це займе хвилину."
+        "Тут цифрова картка, бонуси та історія покупок.\n\n"
+        f"{get_need_card_first()}"
     )
 
 

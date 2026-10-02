@@ -16,27 +16,29 @@
     <header class="top">
       <div class="badge"><i data-lucide="cake"></i></div>
       <h1>Дата народження</h1>
-      <p>Обери дату в календарі — надішлемо приємний подарунок у твій день</p>
+      <p>Обери день, місяць і рік — подаруємо приємність у твій день</p>
     </header>
 
     <div class="date-card">
-      <div class="date-label">День народження</div>
-      <button type="button" class="preview" id="preview" aria-label="Відкрити календар">
-        ДД.ММ.РРРР
-      </button>
-      <input
-        type="date"
-        id="birthday-input"
-        class="date-native-hidden"
-        autocomplete="bday"
-        tabindex="-1"
-        aria-hidden="true"
-      />
-      <p class="date-hint">Натисни на дату — відкриється календар. Потім підтверди вибір.</p>
+      <div class="preview" id="preview" aria-live="polite">ДД.ММ.РРРР</div>
+      <div class="date-fields" id="date-fields">
+        <label class="date-field">
+          <span>День</span>
+          <select id="bd-day" autocomplete="bday-day"></select>
+        </label>
+        <label class="date-field">
+          <span>Місяць</span>
+          <select id="bd-month" autocomplete="bday-month"></select>
+        </label>
+        <label class="date-field">
+          <span>Рік</span>
+          <select id="bd-year" autocomplete="bday-year"></select>
+        </label>
+      </div>
     </div>
 
     <div class="actions">
-      <button type="button" class="btn primary" id="confirm-btn" disabled>
+      <button type="button" class="btn primary" id="confirm-btn">
         <i data-lucide="check"></i>
         Підтвердити
       </button>
@@ -45,6 +47,7 @@
       </button>
     </div>
   </div>
+  <script src="/static/date-fields.js"></script>
   <script src="/static/birthday.js"></script>
 </body>
 </html>

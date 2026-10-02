@@ -45,6 +45,9 @@ def get_start_keyboard(user_id: int, registered: bool | None = None):
             registered = False
 
     keyboard = []
+    if not registered:
+        keyboard.append([KeyboardButton(text="✅ Оформити картку")])
+
     if registered and WEBAPP_URL:
         keyboard.append(
             [KeyboardButton(text="🪪 Моя картка", web_app=WebAppInfo(url=WEBAPP_URL))]

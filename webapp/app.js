@@ -122,15 +122,6 @@
 
   const hasBirthday = (raw) => Boolean(raw && raw !== "0000-00-00");
 
-  const birthdayBounds = () => {
-    const now = new Date();
-    const max = new Date(now.getFullYear() - 10, now.getMonth(), now.getDate());
-    const min = new Date(now.getFullYear() - 90, now.getMonth(), now.getDate());
-    const toIso = (d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return { min: toIso(min), max: toIso(max) };
-  };
-
   const fmtBirthday = (raw) => {
     if (!hasBirthday(raw)) return "не вказано";
     const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -138,20 +129,6 @@
     const dmy = String(raw).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
     if (dmy) return `${dmy[1]}.${dmy[2]}.${dmy[3]}`;
     return String(raw);
-  };
-
-  const openDatePicker = (el) => {
-    if (!el) return;
-    try {
-      if (typeof el.showPicker === "function") {
-        el.showPicker();
-        return;
-      }
-    } catch (_) {}
-    el.focus({ preventScroll: true });
-    try {
-      el.click();
-    } catch (_) {}
   };
 
   const fmtDateTime = (raw) => {
@@ -525,12 +502,15 @@
               hasBirthday(me.birthday)
                 ? `<div class="value">${escapeHtml(fmtBirthday(me.birthday))}</div>`
                 : `<div class="value muted">Не вказано</div>
-                   <p class="birthday-add-hint">Натисни на дату, обери в календарі 🎂</p>
-                   <div class="birthday-add-row birthday-picker-wrap">
-                     <button type="button" class="birthday-picker-preview" id="profile-birthday-open">ДД.ММ.РРРР</button>
-                     <input type="date" id="profile-birthday" class="date-native-hidden" autocomplete="bday"
-                       min="${birthdayBounds().min}" max="${birthdayBounds().max}" tabindex="-1" aria-hidden="true" />
-                     <button type="button" class="birthday-save-btn" id="save-birthday-btn" disabled>Зберегти</button>
+                   <p class="birthday-add-hint">Обери день, місяць і рік 🎂</p>
+                   <div class="birthday-profile-picker" id="profile-birthday-root">
+                     <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
+                     <div class="date-fields">
+                       <label class="date-field"><span>День</span><select data-bd-day></select></label>
+                       <label class="date-field"><span>Місяць</span><select data-bd-month></select></label>
+                       <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
+                     </div>
+                     <button type="button" class="birthday-save-btn" id="save-birthday-btn">Зберегти</button>
                    </div>
                    <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`
             }
@@ -852,24 +832,18 @@
       });
     });
 
-    const birthdayInput = document.getElementById("profile-birthday");
-    const birthdayOpen = document.getElementById("profile-birthday-open");
+    const birthdayRoot = document.getElementById("profile-birthday-root");
     const saveBirthdayBtn = document.getElementById("save-birthday-btn");
     const birthdayError = document.getElementById("birthday-error");
-    if (birthdayInput && birthdayOpen && saveBirthdayBtn) {
-      const syncPreview = () => {
-        const iso = (birthdayInput.value || "").trim();
-        birthdayOpen.textContent = iso ? fmtBirthday(iso) : "ДД.ММ.РРРР";
-        saveBirthdayBtn.disabled = !iso;
-      };
-      syncPreview();
-      birthdayOpen.addEventListener("click", () => openDatePicker(birthdayInput));
-      birthdayInput.addEventListener("input", syncPreview);
-      birthdayInput.addEventListener("change", syncPreview);
+    if (birthdayRoot && saveBirthdayBtn && window.CraftDateFields) {
+      const picker = window.CraftDateFields.mount(birthdayRoot);
       saveBirthdayBtn.addEventListener("click", async () => {
-        const iso = (birthdayInput.value || "").trim();
+        const iso = picker.isoValue();
         if (!iso) {
-          openDatePicker(birthdayInput);
+          if (birthdayError) {
+            birthdayError.textContent = "Обери день, місяць і рік";
+            birthdayError.classList.remove("hidden");
+          }
           return;
         }
         saveBirthdayBtn.disabled = true;

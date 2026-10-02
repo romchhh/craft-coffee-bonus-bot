@@ -23,6 +23,7 @@ from keyboards.client_keyboards import (
 )
 from Content.texts import (
     get_greeting_message,
+    get_need_card_first,
     get_ask_name,
     get_ask_phone,
     get_ask_birthday,
@@ -100,7 +101,37 @@ async def start_command(message: types.Message, state: FSMContext):
             await message.answer("Твоя цифрова картка 👇", reply_markup=inline)
         return
 
-    await message.answer(get_greeting_message(user.first_name), parse_mode="HTML")
+    kb = get_start_keyboard(user.id, registered=False)
+    await message.answer(
+        get_greeting_message(user.first_name),
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+    await message.answer(get_ask_name(), parse_mode="HTML")
+    await state.set_state(Registration.name)
+
+
+async def _prompt_need_card(message: types.Message) -> None:
+    await message.answer(
+        get_need_card_first(),
+        parse_mode="HTML",
+        reply_markup=get_start_keyboard(message.from_user.id, registered=False),
+    )
+
+
+@router.message(F.text == "✅ Оформити картку")
+async def register_card_button(message: types.Message, state: FSMContext):
+    await state.clear()
+    await _ensure_user(message)
+    if is_registered(message.from_user.id):
+        db_user = get_user(message.from_user.id)
+        name = (db_user or {}).get("display_name") or message.from_user.first_name
+        await message.answer(
+            get_already_registered(name),
+            parse_mode="HTML",
+            reply_markup=get_start_keyboard(message.from_user.id, registered=True),
+        )
+        return
     await message.answer(get_ask_name(), parse_mode="HTML")
     await state.set_state(Registration.name)
 
@@ -360,7 +391,7 @@ async def _create_loyalty_card(
 async def open_card_fallback(message: types.Message):
     await _ensure_user(message)
     if not is_registered(message.from_user.id):
-        await message.answer("Спочатку заверши реєстрацію: /start")
+        await _prompt_need_card(message)
         return
     user = get_user(message.from_user.id)
     inline = get_open_card_inline()
@@ -377,12 +408,18 @@ async def open_card_fallback(message: types.Message):
 @router.message(F.text == "☕ Про Craft Coffee")
 async def about(message: types.Message):
     await _ensure_user(message)
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
     await message.answer(get_about_text(), parse_mode="HTML")
 
 
 @router.message(F.text == "🎁 Бонуси")
 async def bonuses_info(message: types.Message):
     await _ensure_user(message)
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
     user = get_user(message.from_user.id)
     lines = [get_faq_text()]
     if user and user.get("poster_client_id"):
@@ -398,6 +435,9 @@ async def bonuses_info(message: types.Message):
 @router.message(Command("support"))
 async def support(message: types.Message):
     await _ensure_user(message)
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
     await message.answer(
         text=get_manager_text(),
         parse_mode="HTML",
@@ -410,10 +450,33 @@ async def webapp_data_outside_flow(message: types.Message):
     """WebApp sendData поза реєстрацією — не залишати update без обробника."""
     from database_functions.client_db import is_registered
 
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
     await message.answer(
         "Якщо картка не відкрилась — натисни «🪪 Моя картка» або /start",
-        reply_markup=get_start_keyboard(message.from_user.id, registered=is_registered(message.from_user.id)),
+        reply_markup=get_start_keyboard(message.from_user.id, registered=True),
     )
+
+
+@router.message(StateFilter(None), ~F.text.startswith("/"))
+async def guest_without_card(message: types.Message):
+    """Користувач без картки пише щось поза реєстрацією."""
+    if not message.from_user or not message.text:
+        return
+    if message.text in {
+        "✅ Оформити картку",
+        "☕ Про Craft Coffee",
+        "🎁 Бонуси",
+        "💬 Підтримка",
+        "🪪 Моя картка",
+        "👨‍💻 Адмін панель",
+    }:
+        return
+    await _ensure_user(message)
+    if is_registered(message.from_user.id):
+        return
+    await _prompt_need_card(message)
 
 
 async def on_startup(router):
