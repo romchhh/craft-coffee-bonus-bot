@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Дата народження · Craft Coffee</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0"></script>
+  <link rel="stylesheet" href="/static/birthday.css">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <div class="badge"><i data-lucide="cake"></i></div>
+      <h1>Дата народження</h1>
+      <p>Обери дату в календарі — надішлемо приємний подарунок у твій день</p>
+    </header>
+
+    <div class="preview" id="preview" aria-live="polite">—</div>
+
+    <div class="date-card">
+      <label class="date-label" for="birthday-input">День народження</label>
+      <input
+        type="date"
+        id="birthday-input"
+        class="date-native"
+        autocomplete="bday"
+        required
+      />
+      <p class="date-hint">Натисни на поле — відкриється зручний вибір дати на твоєму телефоні</p>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="confirm-btn">
+        <i data-lucide="check"></i>
+        Підтвердити
+      </button>
+      <button type="button" class="btn ghost" id="skip-btn">
+        Пропустити
+      </button>
+    </div>
+  </div>
+  <script src="/static/birthday.js"></script>
+</body>
+</html>

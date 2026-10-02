@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Craft Coffee</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app" class="surface">
+    <header class="chrome">
+      <div class="brand-wrap">
+        <img class="brand-logo" src="/static/assets/brand-logo.png" alt="Крафт" width="148" height="48" decoding="async">
+      </div>
+    </header>
+
+    <main id="content" aria-live="polite">
+      <div class="loader">
+        <div class="loader-icon"><i data-lucide="coffee"></i></div>
+        <p>Завантаження…</p>
+      </div>
+    </main>
+
+    <nav id="tabs" aria-label="Меню">
+      <button type="button" data-tab="card" aria-current="page">
+        <i data-lucide="credit-card" class="tab-icon"></i>
+        <span class="tab-label">Картка</span>
+      </button>
+      <button type="button" data-tab="spots">
+        <i data-lucide="map-pin" class="tab-icon"></i>
+        <span class="tab-label">Точки</span>
+      </button>
+      <button type="button" data-tab="menu">
+        <i data-lucide="utensils" class="tab-icon"></i>
+        <span class="tab-label">Меню</span>
+      </button>
+      <button type="button" data-tab="history">
+        <i data-lucide="history" class="tab-icon"></i>
+        <span class="tab-label">Історія</span>
+      </button>
+    </nav>
+
+    <div id="barcode-modal" class="barcode-modal" hidden aria-hidden="true">
+      <button type="button" class="barcode-modal-backdrop" id="barcode-modal-backdrop" aria-label="Закрити"></button>
+      <div class="barcode-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="barcode-modal-title">
+        <div class="barcode-modal-head">
+          <h2 id="barcode-modal-title">Штрихкод картки</h2>
+          <button type="button" class="barcode-modal-close" id="barcode-modal-close" aria-label="Закрити">✕</button>
+        </div>
+        <div class="barcode-modal-code">
+          <svg id="barcode-modal-svg" aria-hidden="true"></svg>
+        </div>
+        <p class="barcode-modal-hint">Покажи на касі Craft Coffee</p>
+        <p class="barcode-modal-number" id="barcode-modal-number"></p>
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js?v=5"></script>
+</body>
+</html>

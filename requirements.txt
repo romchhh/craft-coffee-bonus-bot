@@ -1,0 +1,9 @@
+aiogram==3.18.0
+pandas==2.2.3
+openpyxl==3.1.5
+python-dotenv
+requests
+aiohttp
+cryptography
+Pillow
+python-barcode==0.15.1
