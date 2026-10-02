@@ -1,16 +1,20 @@
 (() => {
   const tg = window.Telegram?.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand();
+  function applyTelegramChrome() {
+    if (!tg) return;
     try {
       tg.setHeaderColor("#ffffff");
       tg.setBackgroundColor("#ffffff");
-      tg.enableClosingConfirmation();
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
     } catch (_) {}
+  }
+
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    applyTelegramChrome();
   }
 
   const content = document.getElementById("content");
@@ -221,12 +225,10 @@
 
     initDataPromise = (async () => {
       tg.ready();
-      if (typeof tg.enableClosingConfirmation === "function") {
-        try {
-          tg.enableClosingConfirmation();
-        } catch (_) {}
-      }
-      for (let i = 0; i < 200; i++) {
+      try {
+        tg.expand();
+      } catch (_) {}
+      for (let i = 0; i < 320; i++) {
         const raw = readInitDataRaw();
         if (raw && raw.includes("hash=")) {
           cachedInitData = raw;
@@ -937,6 +939,11 @@
       state.history = { purchases: [], bonuses: [] };
       appReady = true;
       tabs.removeAttribute("aria-busy");
+      try {
+        if (typeof tg?.enableClosingConfirmation === "function") {
+          tg.enableClosingConfirmation();
+        }
+      } catch (_) {}
       render();
       loadSecondaryData();
       loadMenu();
@@ -977,23 +984,40 @@
 
   paintIcons(tabs);
   paintIcons();
+  async function boot() {
+    if (tg) {
+      tg.ready();
+      try {
+        tg.expand();
+      } catch (_) {}
+      applyTelegramChrome();
+      await sleep(80);
+    }
+    await loadAll();
+  }
+
   if (tg) {
     const kickInit = () => {
-      if (!cachedInitData) resolveInitData(true);
+      resetInitDataCache();
+      resolveInitData(true).then((raw) => {
+        if (raw && raw.includes("hash=") && !state.me && appReady) {
+          loadAll();
+        }
+      });
     };
     try {
       tg.onEvent("viewportChanged", kickInit);
       tg.onEvent("themeChanged", kickInit);
+      tg.onEvent("webAppReady", kickInit);
     } catch (_) {}
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
-      if (state.me) return;
       const now = Date.now();
-      if (now - lastVisibilityReload < 4000) return;
+      if (now - lastVisibilityReload < 2500) return;
       lastVisibilityReload = now;
       resetInitDataCache();
-      loadAll();
+      if (!state.me) loadAll();
     });
   }
-  loadAll();
+  boot();
 })();

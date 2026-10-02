@@ -361,7 +361,10 @@ async def _create_loyalty_card(
         else:
             card_number = current_card
 
-        fields = {"client_name": display_name}
+        fields = {
+            "client_name": display_name,
+            "client_groups_id_client": poster.client_group_id(),
+        }
         if birthday:
             fields["birthday"] = birthday
         try:
@@ -396,7 +399,10 @@ async def open_card_fallback(message: types.Message):
     user = get_user(message.from_user.id)
     inline = get_open_card_inline()
     if inline:
-        await message.answer("Твоя картка Craft Coffee:", reply_markup=inline)
+        await message.answer(
+            "Відкрий картку кнопкою нижче — так Telegram передасть дані для входу 👇",
+            reply_markup=inline,
+        )
         return
     await message.answer(
         f"Код картки: <code>{user.get('card_number')}</code>\n"
@@ -480,10 +486,19 @@ async def guest_without_card(message: types.Message):
 
 
 async def on_startup(router):
+    import asyncio
+
+    from config import POSTER_TOKEN
     from services.loyalty_cron import start_loyalty_cron
 
     me = await bot.get_me()
     create_dbs()
+    if POSTER_TOKEN:
+        try:
+            await asyncio.to_thread(poster.init_client_group)
+            await asyncio.to_thread(poster.migrate_registered_bot_clients_to_group)
+        except Exception:
+            log.exception("Poster client group sync on startup")
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
     print(f"Bot: @{me.username} запущений!")

@@ -7,7 +7,12 @@ from typing import Any
 
 import requests
 
-from config import POSTER_BONUS_MULT, POSTER_CLIENT_GROUP_ID, POSTER_TOKEN
+from config import (
+    POSTER_BONUS_MULT,
+    POSTER_CLIENT_GROUP_ID,
+    POSTER_CLIENT_GROUP_NAME,
+    POSTER_TOKEN,
+)
 from services.poster_cache import get_cached
 
 log = logging.getLogger(__name__)
@@ -85,8 +90,88 @@ def ean13_from_seq(seq: int) -> str:
     return base + str((10 - total % 10) % 10)
 
 
+_active_client_group_id: int | None = None
+
+
 def get_groups() -> list[dict]:
     return call("clients.getGroups") or []
+
+
+def _group_id_from_row(g: dict) -> int | None:
+    raw = g.get("client_groups_id") or g.get("id")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _group_name_from_row(g: dict) -> str:
+    return str(g.get("client_groups_name") or g.get("name") or "").strip()
+
+
+def resolve_client_group_id_by_name(name: str) -> int | None:
+    want = (name or "").strip().casefold()
+    if not want:
+        return None
+    for g in get_groups():
+        if _group_name_from_row(g).casefold() == want:
+            return _group_id_from_row(g)
+    return None
+
+
+def init_client_group() -> int:
+    """Визначити групу клієнтів (Бонуси2) при старті бота."""
+    global _active_client_group_id
+    resolved = resolve_client_group_id_by_name(POSTER_CLIENT_GROUP_NAME)
+    if resolved is not None:
+        _active_client_group_id = resolved
+        log.info(
+            "Poster client group «%s» → id=%s",
+            POSTER_CLIENT_GROUP_NAME,
+            _active_client_group_id,
+        )
+    else:
+        _active_client_group_id = POSTER_CLIENT_GROUP_ID
+        log.warning(
+            "Групу «%s» не знайдено в Poster — використовуємо POSTER_CLIENT_GROUP_ID=%s",
+            POSTER_CLIENT_GROUP_NAME,
+            _active_client_group_id,
+        )
+    return _active_client_group_id
+
+
+def client_group_id() -> int:
+    if _active_client_group_id is not None:
+        return _active_client_group_id
+    return POSTER_CLIENT_GROUP_ID
+
+
+def assign_client_group(client_id: int | str) -> None:
+    update_client(client_id, client_groups_id_client=client_group_id())
+
+
+def migrate_registered_bot_clients_to_group() -> tuple[int, int]:
+    """Перевести всіх клієнтів бота в цільову групу. Повертає (ok, failed)."""
+    from database_functions.client_db import registered_poster_client_ids
+
+    gid = client_group_id()
+    ok = 0
+    failed = 0
+    for cid in sorted(registered_poster_client_ids()):
+        try:
+            update_client(cid, client_groups_id_client=gid)
+            ok += 1
+        except PosterError as exc:
+            failed += 1
+            log.warning("client_groups migrate client_id=%s: %s", cid, exc)
+    log.info(
+        "Poster group migrate «%s» (id=%s): ok=%s failed=%s",
+        POSTER_CLIENT_GROUP_NAME,
+        gid,
+        ok,
+        failed,
+    )
+    return ok, failed
 
 
 def media_url(path: str | None) -> str | None:
@@ -172,7 +257,7 @@ def create_client(
 ) -> int:
     payload: dict[str, Any] = {
         "client_name": name,
-        "client_groups_id_client": group_id or POSTER_CLIENT_GROUP_ID,
+        "client_groups_id_client": group_id or client_group_id(),
         "card_number": card_number,
         "phone": normalize_phone(phone),
     }

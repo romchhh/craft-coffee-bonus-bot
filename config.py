@@ -23,7 +23,9 @@ def _parse_administrators() -> list[int]:
 administrators = _parse_administrators()
 
 POSTER_TOKEN = getenv("POSTER_TOKEN", "")
-POSTER_CLIENT_GROUP_ID = int(getenv("POSTER_CLIENT_GROUP_ID", "1"))
+# Poster: група «Бонуси2» (бонусна система), id у кабінеті — 2
+POSTER_CLIENT_GROUP_NAME = "Бонуси2"
+POSTER_CLIENT_GROUP_ID = 2
 POSTER_BONUS_MULT = int(getenv("POSTER_BONUS_MULT", "100"))  # 100 = копійки
 WELCOME_BONUS_UAH = float(getenv("WELCOME_BONUS_UAH", "50"))
 

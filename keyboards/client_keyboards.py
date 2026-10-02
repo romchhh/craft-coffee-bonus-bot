@@ -48,11 +48,8 @@ def get_start_keyboard(user_id: int, registered: bool | None = None):
     if not registered:
         keyboard.append([KeyboardButton(text="✅ Оформити картку")])
 
-    if registered and WEBAPP_URL:
-        keyboard.append(
-            [KeyboardButton(text="🪪 Моя картка", web_app=WebAppInfo(url=WEBAPP_URL))]
-        )
-    elif registered:
+    if registered:
+        # Звичайна кнопка (не web_app): у Telegram initData з reply-keyboard web_app часто не приходить.
         keyboard.append([KeyboardButton(text="🪪 Моя картка")])
 
     keyboard.extend(
