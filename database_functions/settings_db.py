@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
-from config import CASHBACK_PERCENT, WELCOME_BONUS_UAH
+from config import CASHBACK_PERCENT, DB_PATH, WELCOME_BONUS_UAH
 
-DB_PATH = Path("database/data.db")
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()

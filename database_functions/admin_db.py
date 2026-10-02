@@ -1,8 +1,10 @@
 import sqlite3
 from datetime import datetime, timedelta
-from database_functions.client_db import get_user_id_by_username, get_username_by_user_id       
 
-conn = sqlite3.connect('database/data.db')
+from config import DB_PATH
+from database_functions.client_db import get_user_id_by_username, get_username_by_user_id
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
 

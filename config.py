@@ -1,7 +1,13 @@
 from os import getenv
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DB_PATH = PROJECT_ROOT / "database" / "data.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 token = (getenv("TOKEN") or "").strip()
 BOT_USERNAME = (getenv("BOT_USERNAME") or "CraftCoffee_Kyiv_Bot").strip().lstrip("@")
