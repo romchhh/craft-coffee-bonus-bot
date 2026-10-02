@@ -1,12 +1,10 @@
 """Налаштування лояльності (вітальний бонус, % кешбеку)."""
 from __future__ import annotations
 
-import sqlite3
+from config import CASHBACK_PERCENT, WELCOME_BONUS_UAH
+from database_functions.db import get_connection
 
-from config import CASHBACK_PERCENT, DB_PATH, WELCOME_BONUS_UAH
-
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-conn.row_factory = sqlite3.Row
+conn = get_connection()
 cursor = conn.cursor()
 
 

@@ -165,11 +165,10 @@ async def reg_birthday_webapp(message: types.Message, state: FSMContext):
         )
         return
 
-    if payload.get("skip") or not payload.get("birthday"):
+    if payload.get("skip"):
         birthday = None
-    else:
+    elif payload.get("birthday"):
         birthday = str(payload["birthday"])
-        # Validate YYYY-MM-DD
         try:
             datetime.strptime(birthday, "%Y-%m-%d")
         except ValueError:
@@ -178,6 +177,12 @@ async def reg_birthday_webapp(message: types.Message, state: FSMContext):
                 reply_markup=get_birthday_keyboard(),
             )
             return
+    else:
+        await message.answer(
+            "Не отримали дату. Натисни на дату, обери в календарі та «Підтвердити».",
+            reply_markup=get_birthday_keyboard(),
+        )
+        return
 
     await _finish_registration(message, state, birthday)
 

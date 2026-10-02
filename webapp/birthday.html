@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Дата народження · Craft Coffee</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,20 +19,27 @@
       <p>Обери дату в календарі — надішлемо приємний подарунок у твій день</p>
     </header>
 
-    <div class="date-card date-card-picker">
-      <label class="date-label" for="birthday-input">День народження</label>
-      <div class="preview" id="preview" aria-live="polite">ДД.ММ.РРРР</div>
+    <div class="date-card">
+      <div class="date-label">День народження</div>
+      <button type="button" class="preview" id="preview" aria-label="Відкрити календар">
+        ДД.ММ.РРРР
+      </button>
       <input
         type="date"
         id="birthday-input"
-        class="date-native date-overlay"
+        class="date-native-hidden"
         autocomplete="bday"
-        required
+        tabindex="-1"
+        aria-hidden="true"
       />
-      <p class="date-hint">Календар відкриється автоматично. Після вибору дату збережемо одразу.</p>
+      <p class="date-hint">Натисни на дату — відкриється календар. Потім підтверди вибір.</p>
     </div>
 
     <div class="actions">
+      <button type="button" class="btn primary" id="confirm-btn" disabled>
+        <i data-lucide="check"></i>
+        Підтвердити
+      </button>
       <button type="button" class="btn ghost" id="skip-btn">
         Пропустити
       </button>

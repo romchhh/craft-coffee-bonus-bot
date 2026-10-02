@@ -158,11 +158,9 @@
     if (!raw || raw === "—") return "—";
     const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
     if (!m) return String(raw);
-    const day = Number(m[3]);
-    const month = MONTHS_UA[Number(m[2]) - 1];
-    const year = m[1];
-    if (m[4] != null) return `${day} ${month} ${year}, ${m[4]}:${m[5]}`;
-    return `${day} ${month} ${year}`;
+    const base = `${m[3]}.${m[2]}.${m[1]}`;
+    if (m[4] != null) return `${base}, ${m[4]}:${m[5]}`;
+    return base;
   };
 
   const escapeHtml = (s) => String(s ?? "")
@@ -377,6 +375,7 @@
   function setTab(tab) {
     state.tab = tab;
     closeBarcodeModal();
+    unlockAppScroll();
     [...tabs.querySelectorAll("button")].forEach((b) => {
       b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false");
     });
@@ -386,6 +385,7 @@
       return;
     }
     render();
+    content.scrollTop = 0;
   }
 
   function paintBarcode(code) {
@@ -525,11 +525,12 @@
               hasBirthday(me.birthday)
                 ? `<div class="value">${escapeHtml(fmtBirthday(me.birthday))}</div>`
                 : `<div class="value muted">Не вказано</div>
-                   <p class="birthday-add-hint">Обери дату в календарі — збережемо одразу 🎂</p>
+                   <p class="birthday-add-hint">Натисни на дату, обери в календарі 🎂</p>
                    <div class="birthday-add-row birthday-picker-wrap">
-                     <div class="birthday-picker-preview" id="profile-birthday-preview">ДД.ММ.РРРР</div>
-                     <input type="date" id="profile-birthday" class="date-native date-native-overlay" autocomplete="bday"
-                       min="${birthdayBounds().min}" max="${birthdayBounds().max}" />
+                     <button type="button" class="birthday-picker-preview" id="profile-birthday-open">ДД.ММ.РРРР</button>
+                     <input type="date" id="profile-birthday" class="date-native-hidden" autocomplete="bday"
+                       min="${birthdayBounds().min}" max="${birthdayBounds().max}" tabindex="-1" aria-hidden="true" />
+                     <button type="button" class="birthday-save-btn" id="save-birthday-btn" disabled>Зберегти</button>
                    </div>
                    <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`
             }
@@ -789,10 +790,19 @@
   function render() {
     closeBarcodeModal();
     let html = "";
-    if (state.tab === "card") html = renderCard();
-    else if (state.tab === "spots") html = renderSpots();
-    else if (state.tab === "menu") html = renderMenu();
-    else if (state.tab === "history") html = renderHistory();
+    try {
+      if (state.tab === "card") html = renderCard();
+      else if (state.tab === "spots") html = renderSpots();
+      else if (state.tab === "menu") html = renderMenu();
+      else if (state.tab === "history") html = renderHistory();
+    } catch (err) {
+      console.error("render", state.tab, err);
+      html = `<div class="empty">
+        <div class="empty-ico">${icon("alert-circle")}</div>
+        <p><strong>Не вдалося показати розділ</strong></p>
+        <p class="muted">${escapeHtml(err.message || String(err))}</p>
+      </div>`;
+    }
     content.innerHTML = html;
     paintIcons();
 
@@ -843,35 +853,39 @@
     });
 
     const birthdayInput = document.getElementById("profile-birthday");
-    const birthdayPreview = document.getElementById("profile-birthday-preview");
+    const birthdayOpen = document.getElementById("profile-birthday-open");
+    const saveBirthdayBtn = document.getElementById("save-birthday-btn");
     const birthdayError = document.getElementById("birthday-error");
-    if (birthdayInput) {
+    if (birthdayInput && birthdayOpen && saveBirthdayBtn) {
       const syncPreview = () => {
-        if (!birthdayPreview) return;
         const iso = (birthdayInput.value || "").trim();
-        birthdayPreview.textContent = iso ? fmtBirthday(iso) : "ДД.ММ.РРРР";
+        birthdayOpen.textContent = iso ? fmtBirthday(iso) : "ДД.ММ.РРРР";
+        saveBirthdayBtn.disabled = !iso;
       };
       syncPreview();
+      birthdayOpen.addEventListener("click", () => openDatePicker(birthdayInput));
       birthdayInput.addEventListener("input", syncPreview);
-      birthdayInput.addEventListener("change", async () => {
+      birthdayInput.addEventListener("change", syncPreview);
+      saveBirthdayBtn.addEventListener("click", async () => {
         const iso = (birthdayInput.value || "").trim();
-        if (!iso) return;
-        syncPreview();
-        birthdayInput.disabled = true;
+        if (!iso) {
+          openDatePicker(birthdayInput);
+          return;
+        }
+        saveBirthdayBtn.disabled = true;
         if (birthdayError) birthdayError.classList.add("hidden");
         try {
           const res = await apiPost("/me/birthday", { birthday: iso });
           if (state.me) state.me.birthday = res.birthday;
           render();
         } catch (err) {
-          birthdayInput.disabled = false;
+          saveBirthdayBtn.disabled = false;
           if (birthdayError) {
             birthdayError.textContent = err.message || "Не вдалося зберегти";
             birthdayError.classList.remove("hidden");
           }
         }
       });
-      setTimeout(() => openDatePicker(birthdayInput), 350);
     }
   }
 

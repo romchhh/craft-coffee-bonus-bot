@@ -1,11 +1,12 @@
 import sqlite3
 from datetime import datetime, timedelta
 
-from config import DB_PATH
-from database_functions.client_db import get_user_id_by_username, get_username_by_user_id
-
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-cursor = conn.cursor()
+from database_functions.client_db import (
+    conn,
+    cursor,
+    get_user_id_by_username,
+    get_username_by_user_id,
+)
 
 
 def get_users_count():

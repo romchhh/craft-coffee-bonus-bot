@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from datetime import datetime, timedelta
 
-from config import DB_PATH
+from database_functions.db import get_connection
 from database_functions.settings_db import get_welcome_bonus_uah
 
 log = logging.getLogger(__name__)
 
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn = get_connection()
 cursor = conn.cursor()
 
 

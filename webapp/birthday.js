@@ -6,7 +6,6 @@
     try {
       tg.setHeaderColor("#ffffff");
       tg.setBackgroundColor("#ffffff");
-      tg.enableClosingConfirmation();
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
@@ -15,6 +14,7 @@
 
   const input = document.getElementById("birthday-input");
   const preview = document.getElementById("preview");
+  const confirmBtn = document.getElementById("confirm-btn");
   let submitted = false;
 
   function bounds() {
@@ -36,8 +36,11 @@
     return `${m[3]}.${m[2]}.${m[1]}`;
   }
 
-  function updatePreview() {
-    preview.textContent = input.value ? displayFromIso(input.value) : "ДД.ММ.РРРР";
+  function syncUi() {
+    const iso = (input.value || "").trim();
+    const label = iso ? displayFromIso(iso) : "ДД.ММ.РРРР";
+    preview.textContent = label;
+    confirmBtn.disabled = !iso || submitted;
   }
 
   function send(payload) {
@@ -49,19 +52,7 @@
     alert(data);
   }
 
-  function submitIfReady() {
-    const iso = (input.value || "").trim();
-    if (!iso || submitted) return;
-    submitted = true;
-    preview.textContent = displayFromIso(iso);
-    send({
-      type: "birthday",
-      birthday: iso,
-      display: displayFromIso(iso),
-    });
-  }
-
-  function openPicker() {
+  function openPickerFromGesture() {
     if (submitted) return;
     try {
       if (typeof input.showPicker === "function") {
@@ -70,31 +61,40 @@
       }
     } catch (_) {}
     input.focus({ preventScroll: true });
-    try {
-      input.click();
-    } catch (_) {}
   }
 
   const { min, max } = bounds();
   input.min = min;
   input.max = max;
-  updatePreview();
+  syncUi();
 
-  input.addEventListener("input", updatePreview);
-  input.addEventListener("change", () => {
-    updatePreview();
-    submitIfReady();
+  preview.addEventListener("click", openPickerFromGesture);
+
+  input.addEventListener("input", syncUi);
+  input.addEventListener("change", syncUi);
+
+  confirmBtn.addEventListener("click", () => {
+    if (submitted) return;
+    const iso = (input.value || "").trim();
+    if (!iso) {
+      preview.textContent = "Спочатку обери дату";
+      openPickerFromGesture();
+      return;
+    }
+    submitted = true;
+    confirmBtn.disabled = true;
+    send({
+      type: "birthday",
+      birthday: iso,
+      display: displayFromIso(iso),
+    });
   });
 
   document.getElementById("skip-btn").addEventListener("click", () => {
     if (submitted) return;
     submitted = true;
-    send({ type: "birthday", birthday: null, skip: true });
+    send({ type: "birthday", skip: true });
   });
-
-  const scheduleOpen = () => setTimeout(openPicker, 350);
-  scheduleOpen();
-  window.addEventListener("pageshow", scheduleOpen);
 
   if (window.lucide?.createIcons) {
     window.lucide.createIcons({ attrs: { "stroke-width": 2.2 } });
