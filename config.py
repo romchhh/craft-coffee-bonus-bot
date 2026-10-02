@@ -26,7 +26,8 @@ POSTER_TOKEN = getenv("POSTER_TOKEN", "")
 # Poster: група «Бонуси2» (бонусна система), id у кабінеті — 2
 POSTER_CLIENT_GROUP_NAME = "Бонуси2"
 POSTER_CLIENT_GROUP_ID = 2
-POSTER_BONUS_MULT = int(getenv("POSTER_BONUS_MULT", "100"))  # 100 = копійки
+# Суми в чеках і меню Poster (копійки: 100 = 1 грн). Не для поля bonus клієнта.
+POSTER_MONEY_MULT = int(getenv("POSTER_BONUS_MULT", "100"))
 WELCOME_BONUS_UAH = float(getenv("WELCOME_BONUS_UAH", "50"))
 
 WEBAPP_URL = (getenv("WEBAPP_URL") or "").rstrip("/")

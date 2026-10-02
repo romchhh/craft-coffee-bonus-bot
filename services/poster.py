@@ -8,9 +8,9 @@ from typing import Any
 import requests
 
 from config import (
-    POSTER_BONUS_MULT,
     POSTER_CLIENT_GROUP_ID,
     POSTER_CLIENT_GROUP_NAME,
+    POSTER_MONEY_MULT,
     POSTER_TOKEN,
 )
 from services.poster_cache import get_cached
@@ -73,14 +73,25 @@ def phone_digits(raw: str) -> str:
 
 
 def to_minor(amount_uah: float) -> int:
-    return int(round(float(amount_uah) * POSTER_BONUS_MULT))
+    """Чеки, меню — копійки."""
+    return int(round(float(amount_uah) * POSTER_MONEY_MULT))
 
 
 def from_minor(amount) -> float:
+    """Чеки, меню та баланс bonus з відповіді API — з копійок у грн."""
     try:
-        return float(amount or 0) / POSTER_BONUS_MULT
+        return float(amount or 0) / POSTER_MONEY_MULT
     except (TypeError, ValueError):
         return 0.0
+
+
+def to_bonus_write(amount_uah: float) -> int:
+    """Поле bonus / changeClientBonus.count — сума в гривнях (без ×100)."""
+    return int(round(float(amount_uah)))
+
+
+def from_bonus_write(amount) -> float:
+    return float(amount or 0)
 
 
 def ean13_from_seq(seq: int) -> str:
@@ -266,7 +277,7 @@ def create_client(
     if sex is not None:
         payload["client_sex"] = sex
     if bonus_uah:
-        payload["bonus"] = to_minor(bonus_uah)
+        payload["bonus"] = to_bonus_write(bonus_uah)
     result = call("clients.createClient", data=payload)
     return int(result)
 
@@ -277,7 +288,7 @@ def update_client(client_id: int | str, **fields) -> Any:
 
 
 def set_bonus(client_id: int | str, amount_uah: float) -> Any:
-    return update_client(client_id, bonus=to_minor(amount_uah))
+    return update_client(client_id, bonus=to_bonus_write(amount_uah))
 
 
 def change_client_bonus(client_id: int | str, delta_uah: float) -> Any:
@@ -286,7 +297,7 @@ def change_client_bonus(client_id: int | str, delta_uah: float) -> Any:
         "clients.changeClientBonus",
         data={
             "client_id": client_id,
-            "count": to_minor(delta_uah),
+            "count": to_bonus_write(delta_uah),
             "block_webhook": "1",
         },
     )
