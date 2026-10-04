@@ -5,6 +5,8 @@ import logging
 import math
 from datetime import datetime, timedelta
 
+from utils.kyiv_time import KYIV_TZ, now_kyiv, kyiv_now_str
+
 from database_functions.charge_db import (
     CHARGE_GOAL,
     MAX_TIER,
@@ -44,7 +46,8 @@ def parse_purchase_datetime(raw: str | None) -> datetime | None:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(raw[:19], fmt)
+            dt = datetime.strptime(raw[:19], fmt)
+            return dt.replace(tzinfo=KYIV_TZ)
         except ValueError:
             continue
     return None
@@ -71,7 +74,7 @@ def apply_idle_penalties(telegram_user_id: int) -> None:
     if not row:
         return
 
-    now = datetime.now()
+    now = now_kyiv()
     last_purchase = parse_purchase_datetime(row.get("last_purchase_at"))
     charge = row["charge_points"]
     updates: dict = {}
@@ -106,7 +109,7 @@ def apply_idle_penalties(telegram_user_id: int) -> None:
                         poster.change_client_bonus(cid, -bal)
                 except Exception as exc:
                     log.warning("bonus burn failed user=%s: %s", telegram_user_id, exc)
-            updates["bonus_burned_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+            updates["bonus_burned_at"] = kyiv_now_str()
 
     if updates:
         save_loyalty_row(telegram_user_id, **updates)
@@ -123,7 +126,7 @@ def on_purchase_closed(
     if not row:
         return 0.0
 
-    at = closed_at or datetime.now()
+    at = closed_at or now_kyiv()
     payed = float(payed_sum_uah or 0)
 
     last_visit = parse_purchase_datetime(row.get("last_charge_visit_at"))

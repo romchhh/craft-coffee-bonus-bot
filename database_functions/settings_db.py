@@ -128,7 +128,7 @@ def mark_transaction_processed(
     bonus_uah: float,
     bonus_spent_uah: float = 0,
 ) -> None:
-    from datetime import datetime
+    from utils.kyiv_time import kyiv_now_str
 
     cursor.execute(
         """
@@ -144,7 +144,7 @@ def mark_transaction_processed(
             payed_sum_uah,
             bonus_uah,
             float(bonus_spent_uah or 0),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            kyiv_now_str(),
         ),
     )
     conn.commit()

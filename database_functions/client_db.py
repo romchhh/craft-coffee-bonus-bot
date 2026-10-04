@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from database_functions.db import get_connection
+from utils.kyiv_time import kyiv_now_str
 
 conn = get_connection()
 cursor = conn.cursor()
@@ -66,7 +65,7 @@ def add_user(
 ):
     if get_user(user_id):
         return
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = kyiv_now_str()
     cursor.execute(
         """
         INSERT INTO users (
@@ -94,7 +93,7 @@ def is_registered(user_id) -> bool:
 
 
 def update_user_activity(user_id):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = kyiv_now_str("%Y-%m-%d %H:%M")
     cursor.execute("UPDATE users SET last_activity = ? WHERE user_id = ?", (now, user_id))
     conn.commit()
 
@@ -129,7 +128,7 @@ def save_registration(
             poster_client_id,
             card_number,
             1 if welcome_bonus_given else 0,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            kyiv_now_str(),
             user_id,
         ),
     )
@@ -141,7 +140,7 @@ def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
         "UPDATE users SET referred_by_user_id = ?, last_activity = ? WHERE user_id = ?",
         (
             int(referrer_user_id) if referrer_user_id else None,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            kyiv_now_str(),
             user_id,
         ),
     )
@@ -151,7 +150,7 @@ def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
 def mark_birthday_bonus_given(user_id: int | str) -> None:
     cursor.execute(
         "UPDATE users SET birthday_bonus_given = 1, last_activity = ? WHERE user_id = ?",
-        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id),
+        (kyiv_now_str(), user_id),
     )
     conn.commit()
 
@@ -159,7 +158,7 @@ def mark_birthday_bonus_given(user_id: int | str) -> None:
 def mark_referral_bonus_paid(user_id: int | str) -> None:
     cursor.execute(
         "UPDATE users SET referral_bonus_paid = 1, last_activity = ? WHERE user_id = ?",
-        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id),
+        (kyiv_now_str(), user_id),
     )
     conn.commit()
 
@@ -180,7 +179,7 @@ def update_user_birthday(user_id: int | str, birthday: str | None) -> None:
         "UPDATE users SET birthday = ?, last_activity = ? WHERE user_id = ?",
         (
             birthday,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            kyiv_now_str(),
             user_id,
         ),
     )

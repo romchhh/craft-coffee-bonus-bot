@@ -25,6 +25,7 @@ from config import (
     token as BOT_TOKEN,
 )
 from database_functions.client_db import get_user, update_user_birthday
+from utils.kyiv_time import kyiv_now_str
 from services.quest_bonuses import grant_birthday_bonus, quests_payload
 from database_functions.settings_db import get_welcome_bonus_uah, list_bonus_accruals_for_user
 from services import apple_wallet, poster
@@ -497,8 +498,6 @@ async def api_history(request: web.Request) -> web.Response:
             acc = accruals_by_tx.get(tid)
             cashback_uah = float(acc.get("bonus_uah") or 0) if acc else 0.0
             close_date = t.get("date_close_date") or "—"
-            if acc and acc.get("processed_at"):
-                close_date = str(acc.get("processed_at"))[:19] or close_date
             purchases.append(
                 {
                     "transaction_id": tid,
@@ -517,7 +516,7 @@ async def api_history(request: web.Request) -> web.Response:
     if db_user.get("welcome_bonus_given"):
         bonuses.append(
             {
-                "date": (db_user.get("join_date") or "")[:19] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "date": (db_user.get("join_date") or "")[:19] or kyiv_now_str(),
                 "title": "Вітальні бонуси за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
             }
@@ -527,7 +526,7 @@ async def api_history(request: web.Request) -> web.Response:
 
         bonuses.append(
             {
-                "date": (db_user.get("last_activity") or "")[:19] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "date": (db_user.get("last_activity") or "")[:19] or kyiv_now_str(),
                 "title": "Бонус за день народження",
                 "amount": get_birthday_bonus_uah(),
             }
