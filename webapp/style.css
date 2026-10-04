@@ -103,11 +103,11 @@ nav#tabs {
   z-index: 5;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  margin: 0 8px calc(8px + env(safe-area-inset-bottom));
-  padding: 8px;
-  border-radius: 28px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 6px calc(6px + env(safe-area-inset-bottom));
+  padding: 6px 4px;
+  border-radius: 24px;
   background: #f3f3f3;
   box-shadow: var(--shadow);
   border: 1px solid rgba(0, 0, 0, 0.12);
@@ -118,32 +118,40 @@ nav#tabs button {
   background: transparent;
   color: #3d3d3d;
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  padding: 8px 4px 6px;
-  min-height: 64px;
-  border-radius: 20px;
+  padding: 6px 1px 4px;
+  min-height: 52px;
+  min-width: 0;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
 nav#tabs .tab-icon,
 nav#tabs button svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   stroke-width: 2.2;
   flex-shrink: 0;
 }
 
 nav#tabs .tab-label {
   display: block;
-  line-height: 1.15;
-  letter-spacing: 0.02em;
+  width: 100%;
+  max-width: 100%;
+  line-height: 1.1;
+  letter-spacing: 0;
+  font-size: clamp(8px, 2.35vw, 10px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 nav#tabs button[aria-current="page"] {
@@ -1483,7 +1491,53 @@ body.barcode-modal-open .surface {
 }
 
 .quest-card.done {
-  opacity: 0.72;
+  background: var(--soft);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.quest-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.quest-card-head h3 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.quest-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #1a5c34;
+  background: #e8f5ee;
+}
+
+.quest-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quest-section-title {
+  margin: 18px 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sub);
+}
+
+.quest-section-title:first-of-type {
+  margin-top: 8px;
 }
 
 .quest-card h3 {

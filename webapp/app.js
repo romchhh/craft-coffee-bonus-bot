@@ -534,16 +534,22 @@
     const rBonus = Q.referral_bonus_uah ?? 10;
     const bDone = Boolean(Q.birthday_bonus_claimed);
     const refLink = Q.referral_link || "";
-    const refCount = Q.referrals_count ?? 0;
+    const refCount = Number(Q.referrals_count ?? 0);
+    const doneBadge = `<span class="quest-status">${icon("check")} Виконано</span>`;
+    const bdayDisplay = hasBirthday(me.birthday) ? fmtBirthday(me.birthday) : "";
 
     let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
       <p class="muted" style="margin-top:-6px">Виконуй завдання — отримуй бонуси на картку</p>`;
 
-    html += `<div class="quest-card${bDone ? " done" : ""}">
-      <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
-      <h3>Поділись датою народження</h3>
-      <p class="muted">${bDone ? "Дякуємо! Бонус уже на балансі." : "Вкажи день народження — нарахуємо бонуси одразу."}</p>
-      ${bDone ? "" : `
+    const activeParts = [];
+    const doneParts = [];
+
+    if (!bDone) {
+      activeParts.push(`
+      <div class="quest-card">
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+        <h3>Поділись датою народження</h3>
+        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
         <div class="birthday-profile-picker" id="profile-birthday-root">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
@@ -555,18 +561,53 @@
             <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонус</button>
           </div>
         </div>
-        <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`}
-    </div>`;
+        <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
+      </div>`);
+    } else {
+      doneParts.push(`
+      <div class="quest-card done">
+        <div class="quest-card-head">
+          <h3>Поділись датою народження</h3>
+          ${doneBadge}
+        </div>
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+        <p class="muted">Бонус нараховано на картку.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
+      </div>`);
+    }
 
-    html += `<div class="quest-card">
-      <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн</div>
-      <h3>Приведи друга</h3>
-      <p class="muted">Надішли другу посилання. Коли він оформить картку — ти отримаєш бонуси. Запрошено: <strong>${refCount}</strong></p>
-      <div class="quest-actions">
-        <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>Скопіювати посилання</button>
-        <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
-      </div>
-    </div>`;
+    activeParts.push(`
+      <div class="quest-card">
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
+        <h3>Приведи друга</h3>
+        <p class="muted">Надішли посилання. Коли друг оформить картку — отримаєш бонуси.${refCount ? ` Вже запрошено: <strong>${refCount}</strong>.` : ""}</p>
+        <div class="quest-actions">
+          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>Скопіювати</button>
+          <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
+        </div>
+      </div>`);
+
+    if (refCount > 0) {
+      const totalRef = refCount * rBonus;
+      doneParts.push(`
+      <div class="quest-card done">
+        <div class="quest-card-head">
+          <h3>Друзі за твоїм посиланням</h3>
+          ${doneBadge}
+        </div>
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(totalRef))} грн</div>
+        <p class="muted">Оформили картку: <strong>${refCount}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong> за кожного</p>
+      </div>`);
+    }
+
+    if (activeParts.length) {
+      html += `<div class="quest-section-title">Активні</div>${activeParts.join("")}`;
+    }
+    if (doneParts.length) {
+      html += `<div class="quest-section-title">Виконані</div>${doneParts.join("")}`;
+    }
+    if (!activeParts.length && !doneParts.length) {
+      html += `<div class="empty"><p class="muted">Квести скоро з’являться</p></div>`;
+    }
 
     return html;
   }
