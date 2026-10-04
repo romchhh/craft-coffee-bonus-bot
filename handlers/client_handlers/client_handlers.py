@@ -6,7 +6,7 @@ from aiogram import Router, types, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, ReplyKeyboardRemove
 
 from main import bot
 from config import WEBAPP_URL
@@ -20,7 +20,7 @@ from keyboards.client_keyboards import (
     set_webapp_menu,
 )
 from Content.texts import (
-    get_greeting_message,
+    get_registration_welcome,
     get_need_card_first,
     get_ask_name,
     get_ask_phone,
@@ -102,11 +102,10 @@ async def start_command(message: types.Message, state: FSMContext):
             await message.answer("Твоя цифрова картка 👇", reply_markup=inline)
         return
 
-    kb = get_start_keyboard(user.id, registered=False)
     await message.answer(
-        get_greeting_message(user.first_name),
+        get_registration_welcome(user.first_name),
         parse_mode="HTML",
-        reply_markup=kb,
+        reply_markup=ReplyKeyboardRemove(),
     )
     await message.answer(get_ask_name(), parse_mode="HTML")
     await state.set_state(Registration.name)
@@ -137,7 +136,11 @@ async def register_card_button(message: types.Message, state: FSMContext):
             reply_markup=get_start_keyboard(message.from_user.id, registered=True),
         )
         return
-    await message.answer(get_ask_name(), parse_mode="HTML")
+    await message.answer(
+        get_ask_name(),
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
     await state.set_state(Registration.name)
 
 

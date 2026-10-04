@@ -93,16 +93,17 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     except Exception as exc:
         log.warning("charge credit failed user=%s: %s", user["user_id"], exc)
 
-    new_balance = None
+    balance_uah = None
     if bonus_uah > 0:
         try:
-            new_balance = poster.change_client_bonus(client_id, bonus_uah)
+            poster.change_client_bonus(client_id, bonus_uah)
             try:
                 from services.poster_client_cache import invalidate_client
 
                 invalidate_client(client_id)
             except Exception:
                 pass
+            balance_uah = poster.get_client_bonus_uah(client_id)
         except Exception as exc:
             log.exception("change_client_bonus client=%s tx=%s", client_id, tid)
             return {"status": "error", "reason": f"bonus_failed: {exc}"}
@@ -116,7 +117,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
                 payed_sum_uah=payed_sum_uah,
                 bonus_uah=bonus_uah,
                 percent=percent,
-                new_balance=new_balance,
+                balance_uah=balance_uah,
             )
         except Exception as exc:
             log.warning("telegram notify failed user=%s: %s", user["user_id"], exc)
@@ -128,7 +129,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         "telegram_user_id": int(user["user_id"]),
         "payed_sum_uah": payed_sum_uah,
         "bonus_uah": bonus_uah,
-        "new_balance": new_balance,
+        "balance_uah": balance_uah,
     }
 
 
@@ -140,22 +141,27 @@ async def _send_thanks(
     payed_sum_uah: float,
     bonus_uah: float,
     percent: float,
-    new_balance,
+    balance_uah: float | None,
 ) -> None:
+    from keyboards.client_keyboards import get_open_card_inline
+
     who = f", {name}" if name else ""
+    inline = get_open_card_inline()
+    mini_line = (
+        "\n\nВідкрий <b>цифрову картку</b> в мініапі — баланс і штрихкод завжди під рукою 👇"
+        if inline
+        else ""
+    )
     if bonus_uah > 0:
         balance_line = ""
-        if new_balance is not None:
-            try:
-                bal = poster.from_minor(new_balance)
-                balance_line = f"\nЗагальний баланс: <b>{bal:g} грн</b> бонусів."
-            except Exception:
-                pass
+        if balance_uah is not None:
+            balance_line = f"\nЗагальний баланс: <b>{balance_uah:g} грн</b> бонусів."
         text = (
             f"☕ Дякуємо за замовлення{who}!\n\n"
             f"Сума покупки: <b>{payed_sum_uah:g} грн</b>\n"
             f"Нараховано кешбек {percent:g}%: <b>+{bonus_uah:g} грн</b> бонусів."
-            f"{balance_line}\n\n"
+            f"{balance_line}"
+            f"{mini_line}\n\n"
             "Гарного дня від Craft Coffee 🤎"
         )
     else:
@@ -163,5 +169,11 @@ async def _send_thanks(
             f"☕ Дякуємо за замовлення{who}!\n\n"
             f"Сума покупки: <b>{payed_sum_uah:g} грн</b>\n"
             "Чекаємо знову в Craft Coffee!"
+            f"{mini_line}"
         )
-    await bot.send_message(telegram_id, text, parse_mode="HTML")
+    await bot.send_message(
+        telegram_id,
+        text,
+        parse_mode="HTML",
+        reply_markup=inline,
+    )

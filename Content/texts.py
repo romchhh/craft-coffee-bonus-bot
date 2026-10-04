@@ -5,18 +5,22 @@ def get_need_card_first() -> str:
     return (
         "🪪 <b>Спочатку оформи картку лояльності</b>\n\n"
         "Без неї не працюють бонуси, мініап і історія покупок.\n"
-        "Натисни <b>«Оформити картку»</b> або /start — займе близько хвилини."
+        "Натисни /start — займе близько хвилини."
     )
 
 
-def get_greeting_message(name: str | None = None) -> str:
+def get_registration_welcome(name: str | None = None) -> str:
     hello = f", {name}" if name else ""
     return (
         f"☕ <b>Вітаємо в Craft Coffee{hello}!</b>\n\n"
         "Ми — кав’ярня <b>Craft Coffee</b>. "
-        "Тут цифрова картка, бонуси та історія покупок.\n\n"
-        f"{get_need_card_first()}"
+        "Зараз оформимо цифрову картку — бонуси, мініап і історія покупок."
     )
+
+
+def get_greeting_message(name: str | None = None) -> str:
+    """Загальне вітання (наприклад, адмін / parcel)."""
+    return get_registration_welcome(name)
 
 
 def get_ask_name() -> str:
