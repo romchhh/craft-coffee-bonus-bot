@@ -51,6 +51,47 @@ body {
   overflow: hidden;
 }
 
+/* Telegram Desktop / широкий екран — вікно як телефон, не на весь монітор */
+html.app-desktop body {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background: var(--soft);
+}
+
+html.app-desktop .surface {
+  max-width: 430px;
+  width: 100%;
+  margin: 0 auto;
+  height: auto;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  box-shadow: var(--shadow);
+  border-left: 1px solid var(--edge);
+  border-right: 1px solid var(--edge);
+}
+
+@media (min-width: 520px) {
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+    background: var(--soft);
+  }
+
+  .surface {
+    max-width: 430px;
+    width: 100%;
+    margin: 0 auto;
+    height: auto;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    box-shadow: var(--shadow);
+    border-left: 1px solid var(--edge);
+    border-right: 1px solid var(--edge);
+  }
+}
+
 .chrome {
   position: relative;
   z-index: 2;

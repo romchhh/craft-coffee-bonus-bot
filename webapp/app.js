@@ -1,18 +1,42 @@
 (() => {
   const tg = window.Telegram?.WebApp;
+
+  function isMobileWebApp() {
+    const p = String(tg?.platform || "").toLowerCase();
+    if (p === "ios" || p === "android") return true;
+    if (p === "tdesktop" || p === "macos" || p === "web" || p === "weba") return false;
+    if (typeof window.matchMedia === "function") {
+      return window.matchMedia("(max-width: 519px)").matches;
+    }
+    return true;
+  }
+
+  function syncViewportMode() {
+    const mobile = isMobileWebApp();
+    document.documentElement.classList.toggle("app-mobile", mobile);
+    document.documentElement.classList.toggle("app-desktop", !mobile);
+    return mobile;
+  }
+
   function applyTelegramChrome() {
-    if (!tg) return;
+    if (!tg) {
+      syncViewportMode();
+      return;
+    }
+    const mobile = syncViewportMode();
     try {
       tg.setHeaderColor("#ffffff");
       tg.setBackgroundColor("#ffffff");
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
-      if (typeof tg.requestFullscreen === "function") {
-        tg.requestFullscreen();
-      }
-      if (typeof tg.expand === "function") {
-        tg.expand();
+      if (mobile) {
+        if (typeof tg.requestFullscreen === "function") {
+          tg.requestFullscreen();
+        }
+        if (typeof tg.expand === "function") {
+          tg.expand();
+        }
       }
     } catch (_) {}
   }
@@ -253,9 +277,11 @@
 
     initDataPromise = (async () => {
       tg.ready();
-      try {
-        tg.expand();
-      } catch (_) {}
+      if (isMobileWebApp()) {
+        try {
+          tg.expand();
+        } catch (_) {}
+      }
       for (let i = 0; i < 320; i++) {
         const raw = readInitDataRaw();
         if (raw && raw.includes("hash=")) {
