@@ -1242,18 +1242,31 @@ body.barcode-modal-open .surface {
 
 .price.plus { color: #1f7a45; background: rgba(46, 160, 90, 0.12); }
 
-.hist-extra {
-  margin-top: 6px;
-  font-size: 13px;
+.hist-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.hist-card-bonuses {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--edge);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hist-bonus-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hist-bonus-title {
+  font-size: 15px;
   font-weight: 800;
-}
-
-.hist-extra.plus {
-  color: #1f7a45;
-}
-
-.hist-extra.minus {
-  color: #b42318;
+  color: var(--ink);
 }
 .price.minus { color: #b42318; background: rgba(180, 50, 40, 0.10); }
 

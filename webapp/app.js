@@ -851,43 +851,22 @@
   function buildHistoryTimeline(hist) {
     const rows = [];
     for (const p of hist.purchases || []) {
-      rows.push({ kind: "purchase", date: p.date, tie: 2, purchase: p });
-      const cashback = Number(p.cashback_uah || 0);
-      const spent = Number(p.bonus_spent || 0);
-      if (cashback > 0) {
-        rows.push({
-          kind: "bonus",
-          date: p.date,
-          tie: 1,
-          bonus: {
-            date: p.date,
-            title: "Кешбек з покупки",
-            amount: cashback,
-          },
-        });
-      }
-      if (spent > 0) {
-        rows.push({
-          kind: "bonus",
-          date: p.date,
-          tie: 1,
-          bonus: {
-            date: p.date,
-            title: "Списано на покупку",
-            amount: -spent,
-          },
-        });
-      }
+      rows.push({ kind: "purchase", date: p.date, purchase: p });
     }
     for (const b of hist.bonuses || []) {
-      rows.push({ kind: "bonus", date: b.date, tie: 1, bonus: b });
+      rows.push({ kind: "bonus", date: b.date, bonus: b });
     }
-    rows.sort((a, b) => {
-      const byDate = historySortKey(b.date).localeCompare(historySortKey(a.date));
-      if (byDate !== 0) return byDate;
-      return (b.tie || 0) - (a.tie || 0);
-    });
+    rows.sort((a, b) => historySortKey(b.date).localeCompare(historySortKey(a.date)));
     return rows;
+  }
+
+  function renderHistBonusRow(title, amount) {
+    const positive = Number(amount) >= 0;
+    return `
+      <div class="hist-bonus-row">
+        <span class="hist-bonus-title">${escapeHtml(title)}</span>
+        <span class="price ${positive ? "plus" : "minus"}">${positive ? "+" : ""}${fmtMoney(amount)}</span>
+      </div>`;
   }
 
   function renderHistBonusCard(b) {
@@ -912,13 +891,22 @@
     for (const row of buildHistoryTimeline(hist)) {
       if (row.kind === "purchase") {
         const p = row.purchase;
+        const cashback = Number(p.cashback_uah || 0);
+        const spent = Number(p.bonus_spent || 0);
+        let bonusRows = "";
+        if (cashback > 0) bonusRows += renderHistBonusRow("Кешбек з покупки", cashback);
+        if (spent > 0) bonusRows += renderHistBonusRow("Списано на покупку", -spent);
+        const bonusBlock = bonusRows
+          ? `<div class="hist-card-bonuses">${bonusRows}</div>`
+          : "";
         blocks.push(`
-          <div class="hist-card">
+          <div class="hist-card hist-card-combined">
             <div class="ico">${icon("shopping-bag")}</div>
-            <div style="flex:1;min-width:0">
+            <div class="hist-card-body">
               <div class="muted">${escapeHtml(fmtDateTime(p.date))} · ${escapeHtml(p.spot || "Craft Coffee")}</div>
               <h3>Покупка · ${fmtMoney(p.sum)}</h3>
               <div class="muted" style="margin-top:4px">Сплачено ${fmtMoney(p.payed)}</div>
+              ${bonusBlock}
             </div>
           </div>`);
       } else {
