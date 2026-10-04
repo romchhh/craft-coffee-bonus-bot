@@ -54,9 +54,21 @@ def get_registration_done(name: str, bonus: float, card_number: str) -> str:
             f"Номер картки: <code>{card_number}</code>",
             "",
             "Покажи <b>штрихкод на фото</b> на касі — бариста нарахує або спише бонуси.",
+            "",
+            "У мініапі в розділі <b>«Квести»</b> можна додати день народження (+10 грн) і запросити друга (+10 грн).",
         ]
     )
     return "\n".join(lines)
+
+
+def get_referral_bonus_notification(friend_name: str, amount: float) -> str:
+    name = (friend_name or "Друг").strip() or "Друг"
+    return (
+        "🎉 <b>Бонус за друга!</b>\n\n"
+        f"<b>{name}</b> оформив картку Craft Coffee за твоїм посиланням.\n"
+        f"На баланс нараховано <b>{amount:g} грн</b> бонусів.\n\n"
+        "Дякуємо, що ділишся Craft Coffee ☕"
+    )
 
 
 def get_already_registered(name: str | None = None) -> str:
@@ -83,6 +95,8 @@ def get_faq_text() -> str:
     return (
         "<b>Як працюють бонуси?</b>\n\n"
         f"• За реєстрацію — {welcome:g} грн бонусів одразу\n"
+        "• +10 грн за день народження в мініапі (квести)\n"
+        "• +10 грн за кожного друга за реферальним посиланням\n"
         f"• Кешбек з покупок — {cashback:g}%\n"
         "• 1 бонус = 1 грн\n"
         "• Покажи штрихкод на касі, щоб нарахувати або списати бонуси"

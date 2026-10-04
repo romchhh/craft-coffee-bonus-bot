@@ -29,6 +29,8 @@ POSTER_CLIENT_GROUP_ID = 2
 # Суми в чеках і меню Poster (копійки: 100 = 1 грн). Не для поля bonus клієнта.
 POSTER_MONEY_MULT = int(getenv("POSTER_BONUS_MULT", "100"))
 WELCOME_BONUS_UAH = float(getenv("WELCOME_BONUS_UAH", "50"))
+BIRTHDAY_BONUS_UAH = float(getenv("BIRTHDAY_BONUS_UAH", "10"))
+REFERRAL_BONUS_UAH = float(getenv("REFERRAL_BONUS_UAH", "10"))
 
 WEBAPP_URL = (getenv("WEBAPP_URL") or "").rstrip("/")
 WEBAPP_HOST = getenv("WEBAPP_HOST", "0.0.0.0")

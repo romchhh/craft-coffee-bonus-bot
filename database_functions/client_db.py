@@ -25,7 +25,10 @@ def create_table():
             poster_client_id INTEGER,
             card_number TEXT,
             registered INTEGER DEFAULT 0,
-            welcome_bonus_given INTEGER DEFAULT 0
+            welcome_bonus_given INTEGER DEFAULT 0,
+            referred_by_user_id INTEGER,
+            birthday_bonus_given INTEGER DEFAULT 0,
+            referral_bonus_paid INTEGER DEFAULT 0
         )
         """
     )
@@ -43,6 +46,9 @@ def _migrate():
         "registered": "INTEGER DEFAULT 0",
         "welcome_bonus_given": "INTEGER DEFAULT 0",
         "user_phone": "TEXT",
+        "referred_by_user_id": "INTEGER",
+        "birthday_bonus_given": "INTEGER DEFAULT 0",
+        "referral_bonus_paid": "INTEGER DEFAULT 0",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -128,6 +134,45 @@ def save_registration(
         ),
     )
     conn.commit()
+
+
+def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
+    cursor.execute(
+        "UPDATE users SET referred_by_user_id = ?, last_activity = ? WHERE user_id = ?",
+        (
+            int(referrer_user_id) if referrer_user_id else None,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            user_id,
+        ),
+    )
+    conn.commit()
+
+
+def mark_birthday_bonus_given(user_id: int | str) -> None:
+    cursor.execute(
+        "UPDATE users SET birthday_bonus_given = 1, last_activity = ? WHERE user_id = ?",
+        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id),
+    )
+    conn.commit()
+
+
+def mark_referral_bonus_paid(user_id: int | str) -> None:
+    cursor.execute(
+        "UPDATE users SET referral_bonus_paid = 1, last_activity = ? WHERE user_id = ?",
+        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id),
+    )
+    conn.commit()
+
+
+def count_successful_referrals(referrer_user_id: int | str) -> int:
+    row = cursor.execute(
+        """
+        SELECT COUNT(*) FROM users
+        WHERE referred_by_user_id = ? AND registered = 1 AND referral_bonus_paid = 1
+        """,
+        (int(referrer_user_id),),
+    ).fetchone()
+    return int(row[0] or 0)
 
 
 def update_user_birthday(user_id: int | str, birthday: str | None) -> None:

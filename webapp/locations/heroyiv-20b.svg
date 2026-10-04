@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a1a1a"/><stop offset="100%" stop-color="#3d3d3d"/></linearGradient></defs>
+  <rect width="640" height="360" fill="url(#g)"/>
+  <text x="32" y="200" fill="#fff" font-family="system-ui,sans-serif" font-size="42" font-weight="700">Крафт Coffee</text>
+  <text x="32" y="248" fill="#d0d0d0" font-family="system-ui,sans-serif" font-size="22">Бровари</text>
+</svg>

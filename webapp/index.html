@@ -27,18 +27,22 @@
       </div>
     </main>
 
-    <nav id="tabs" aria-label="Меню">
+    <nav id="tabs" class="tabs-hidden" aria-label="Меню" hidden>
       <button type="button" data-tab="card" aria-current="page">
-        <i data-lucide="credit-card" class="tab-icon"></i>
-        <span class="tab-label">Картка</span>
+        <i data-lucide="home" class="tab-icon"></i>
+        <span class="tab-label">Головна</span>
       </button>
-      <button type="button" data-tab="spots">
-        <i data-lucide="map-pin" class="tab-icon"></i>
-        <span class="tab-label">Точки</span>
+      <button type="button" data-tab="quests">
+        <i data-lucide="sparkles" class="tab-icon"></i>
+        <span class="tab-label">Квести</span>
       </button>
       <button type="button" data-tab="menu">
         <i data-lucide="utensils" class="tab-icon"></i>
         <span class="tab-label">Меню</span>
+      </button>
+      <button type="button" data-tab="spots">
+        <i data-lucide="map-pin" class="tab-icon"></i>
+        <span class="tab-label">Заклади</span>
       </button>
       <button type="button" data-tab="history">
         <i data-lucide="history" class="tab-icon"></i>
@@ -62,6 +66,6 @@
     </div>
   </div>
   <script src="/static/date-fields.js"></script>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

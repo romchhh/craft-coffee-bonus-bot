@@ -25,7 +25,6 @@ HIGH_PAY_UAH = 150
 MIN_GAP_HOURS = 2
 IDLE_DECAY_START_DAYS = 30
 DECAY_PER_DAY = 0.5
-TIER_RESET_DAYS = 180
 BONUS_EXPIRE_DAYS = 90
 
 
@@ -74,17 +73,11 @@ def apply_idle_penalties(telegram_user_id: int) -> None:
 
     now = datetime.now()
     last_purchase = parse_purchase_datetime(row.get("last_purchase_at"))
-    tier = row["loyalty_tier"]
     charge = row["charge_points"]
-    protected = row["protected_tier"]
     updates: dict = {}
 
     if last_purchase:
         days_idle = (now.date() - last_purchase.date()).days
-
-        if days_idle >= TIER_RESET_DAYS and tier > protected:
-            tier = protected
-            updates["loyalty_tier"] = tier
 
         if days_idle > IDLE_DECAY_START_DAYS and charge > 0:
             decay_start = last_purchase.date() + timedelta(days=IDLE_DECAY_START_DAYS)

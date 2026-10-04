@@ -1,7 +1,7 @@
 """Налаштування лояльності (вітальний бонус, % кешбеку)."""
 from __future__ import annotations
 
-from config import CASHBACK_PERCENT, WELCOME_BONUS_UAH
+from config import BIRTHDAY_BONUS_UAH, CASHBACK_PERCENT, REFERRAL_BONUS_UAH, WELCOME_BONUS_UAH
 from database_functions.db import get_connection
 
 conn = get_connection()
@@ -12,6 +12,8 @@ def _defaults() -> dict[str, str]:
     return {
         "welcome_bonus_uah": str(WELCOME_BONUS_UAH),
         "cashback_percent": str(CASHBACK_PERCENT),
+        "birthday_bonus_uah": str(BIRTHDAY_BONUS_UAH),
+        "referral_bonus_uah": str(REFERRAL_BONUS_UAH),
     }
 
 
@@ -93,6 +95,20 @@ def set_welcome_bonus_uah(amount: float) -> None:
 
 def set_cashback_percent(percent: float) -> None:
     set_setting("cashback_percent", f"{float(percent):g}")
+
+
+def get_birthday_bonus_uah() -> float:
+    try:
+        return float(get_setting("birthday_bonus_uah", str(BIRTHDAY_BONUS_UAH)))
+    except ValueError:
+        return float(BIRTHDAY_BONUS_UAH)
+
+
+def get_referral_bonus_uah() -> float:
+    try:
+        return float(get_setting("referral_bonus_uah", str(REFERRAL_BONUS_UAH)))
+    except ValueError:
+        return float(REFERRAL_BONUS_UAH)
 
 
 def is_transaction_processed(transaction_id: str | int) -> bool:

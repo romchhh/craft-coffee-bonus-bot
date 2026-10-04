@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
-
 from aiogram import Router, types, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -16,7 +14,6 @@ from database_functions.settings_db import get_welcome_bonus_uah
 from keyboards.client_keyboards import (
     get_start_keyboard,
     get_phone_keyboard,
-    get_birthday_keyboard,
     get_open_card_inline,
     get_manager_keyboard,
     get_about_keyboard,
@@ -27,8 +24,8 @@ from Content.texts import (
     get_need_card_first,
     get_ask_name,
     get_ask_phone,
-    get_ask_birthday,
     get_registration_done,
+    get_referral_bonus_notification,
     get_already_registered,
     get_about_text,
     get_faq_text,
@@ -54,16 +51,6 @@ log = logging.getLogger(__name__)
 router = Router()
 
 
-def _parse_birthday(raw: str) -> str | None:
-    text = raw.strip()
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return None
-
-
 async def _ensure_user(message: types.Message) -> None:
     user = message.from_user
     if not check_user(user.id):
@@ -78,17 +65,29 @@ async def start_command(message: types.Message, state: FSMContext):
     args = message.text.split()
 
     ref_link = None
-    if len(args) > 1 and args[1].startswith("linktowatch_"):
-        try:
-            ref_link = int(args[1].split("_")[1])
-            if not check_user(user.id):
-                increment_link_count(ref_link)
-        except (ValueError, IndexError):
-            pass
+    referred_by: int | None = None
+    if len(args) > 1:
+        payload = args[1]
+        if payload.startswith("linktowatch_"):
+            try:
+                ref_link = int(payload.split("_")[1])
+                if not check_user(user.id):
+                    increment_link_count(ref_link)
+            except (ValueError, IndexError):
+                pass
+        elif payload.startswith("ref_"):
+            try:
+                rid = int(payload[4:])
+                if rid != user.id:
+                    referred_by = rid
+            except ValueError:
+                pass
 
     if not check_user(user.id):
         add_user(user.id, user.username, user.first_name, user.last_name, user.language_code, ref_link)
     update_user_activity(user.id)
+    if referred_by and not is_registered(user.id):
+        await state.update_data(referred_by=referred_by)
 
     if is_registered(user.id):
         db_user = get_user(user.id)
@@ -123,7 +122,11 @@ async def _prompt_need_card(message: types.Message) -> None:
 
 @router.message(F.text == "✅ Оформити картку")
 async def register_card_button(message: types.Message, state: FSMContext):
+    prev = await state.get_data()
+    referred_by = prev.get("referred_by")
     await state.clear()
+    if referred_by:
+        await state.update_data(referred_by=referred_by)
     await _ensure_user(message)
     if is_registered(message.from_user.id):
         db_user = get_user(message.from_user.id)
@@ -155,7 +158,7 @@ async def reg_phone_contact(message: types.Message, state: FSMContext):
     if contact.user_id and contact.user_id != message.from_user.id:
         await message.answer("Надішли саме свій контакт кнопкою нижче.")
         return
-    await _save_phone_and_ask_birthday(message, state, contact.phone_number)
+    await _save_phone_and_finish(message, state, contact.phone_number)
 
 
 @router.message(Registration.phone)
@@ -169,77 +172,22 @@ async def reg_phone_text(message: types.Message, state: FSMContext):
             reply_markup=get_phone_keyboard(),
         )
         return
-    await _save_phone_and_ask_birthday(message, state, phone)
+    await _save_phone_and_finish(message, state, phone)
 
 
-async def _save_phone_and_ask_birthday(message: types.Message, state: FSMContext, raw_phone: str):
+async def _save_phone_and_finish(message: types.Message, state: FSMContext, raw_phone: str):
     try:
         phone = poster.normalize_phone(raw_phone)
     except ValueError:
         await message.answer("Некоректний номер. Спробуй ще раз.", reply_markup=get_phone_keyboard())
         return
     await state.update_data(phone=phone)
-    await message.answer(get_ask_birthday(), parse_mode="HTML", reply_markup=get_birthday_keyboard())
-    await state.set_state(Registration.birthday)
-
-
-@router.message(Registration.birthday, F.web_app_data)
-async def reg_birthday_webapp(message: types.Message, state: FSMContext):
-    import json
-
-    raw = message.web_app_data.data if message.web_app_data else ""
-    birthday = None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        await message.answer(
-            "Не вдалося прочитати дату. Спробуй ще раз.",
-            reply_markup=get_birthday_keyboard(),
-        )
-        return
-
-    if payload.get("skip"):
-        birthday = None
-    elif payload.get("birthday"):
-        birthday = str(payload["birthday"])
-        try:
-            datetime.strptime(birthday, "%Y-%m-%d")
-        except ValueError:
-            await message.answer(
-                "Некоректна дата. Обери ще раз.",
-                reply_markup=get_birthday_keyboard(),
-            )
-            return
-    else:
-        await message.answer(
-            "Не отримали дату. Натисни на дату, обери в календарі та «Підтвердити».",
-            reply_markup=get_birthday_keyboard(),
-        )
-        return
-
-    await _finish_registration(message, state, birthday)
-
-
-@router.message(Registration.birthday)
-async def reg_birthday(message: types.Message, state: FSMContext):
-    text = (message.text or "").strip()
-    birthday = None
-    if text.lower() not in {"пропустити", "skip", "-"}:
-        birthday = _parse_birthday(text)
-        if not birthday:
-            await message.answer(
-                "Обери дату кнопкою «Обрати дату» або натисни «Пропустити».",
-                reply_markup=get_birthday_keyboard(),
-            )
-            return
-
-    await _finish_registration(message, state, birthday)
+    await _finish_registration(message, state)
 
 
 async def _finish_registration(
     message: types.Message,
     state: FSMContext,
-    birthday: str | None,
 ) -> None:
     data = await state.get_data()
     if not data.get("display_name") or not data.get("phone"):
@@ -255,7 +203,7 @@ async def _finish_registration(
             telegram_id=message.from_user.id,
             display_name=data["display_name"],
             phone=data["phone"],
-            birthday=birthday,
+            birthday=None,
         )
     except Exception as exc:
         log.exception("Registration failed for %s", message.from_user.id)
@@ -271,14 +219,26 @@ async def _finish_registration(
         message.from_user.id,
         display_name=data["display_name"],
         phone=data["phone"],
-        birthday=birthday,
+        birthday=None,
         poster_client_id=client_id,
         card_number=card_number,
         welcome_bonus_given=bonus_given,
     )
     from database_functions.charge_db import init_loyalty_for_user
+    from services.quest_bonuses import process_referral_on_registration
 
     init_loyalty_for_user(message.from_user.id)
+    referred_by = data.get("referred_by")
+    if referred_by:
+        referral_paid = process_referral_on_registration(
+            message.from_user.id, int(referred_by)
+        )
+        if referral_paid > 0:
+            await _notify_referrer_referral_bonus(
+                referrer_user_id=int(referred_by),
+                friend_name=data["display_name"],
+                amount=referral_paid,
+            )
 
     bonus_text = get_welcome_bonus_uah() if bonus_given else 0
     await _send_registration_success(
@@ -287,6 +247,27 @@ async def _finish_registration(
         bonus=bonus_text,
         card_number=card_number,
     )
+
+
+async def _notify_referrer_referral_bonus(
+    *,
+    referrer_user_id: int,
+    friend_name: str,
+    amount: float,
+) -> None:
+    text = get_referral_bonus_notification(friend_name, amount)
+    inline = get_open_card_inline()
+    try:
+        await bot.send_message(
+            referrer_user_id,
+            text,
+            parse_mode="HTML",
+            reply_markup=inline,
+        )
+    except TelegramBadRequest as exc:
+        log.info("referral notify failed referrer=%s: %s", referrer_user_id, exc)
+    except Exception as exc:
+        log.warning("referral notify failed referrer=%s: %s", referrer_user_id, exc)
 
 
 async def _send_registration_success(
@@ -458,7 +439,7 @@ async def support(message: types.Message):
     )
 
 
-@router.message(F.web_app_data, ~StateFilter(Registration.birthday))
+@router.message(F.web_app_data)
 async def webapp_data_outside_flow(message: types.Message):
     """WebApp sendData поза реєстрацією — не залишати update без обробника."""
     from database_functions.client_db import is_registered

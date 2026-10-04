@@ -256,6 +256,20 @@ def find_client_by_phone(phone: str) -> dict | None:
     return None
 
 
+def find_clients_by_phone_suffix(suffix: str) -> list[dict]:
+    """Пошук клієнтів за останніми цифрами телефону (4–12 цифр), як на Новій Пошті."""
+    digits = re.sub(r"\D", "", suffix or "")
+    if len(digits) < 4:
+        return []
+    matches: list[dict] = []
+    for c in get_clients():
+        raw = c.get("phone_number") or c.get("phone") or ""
+        phone = re.sub(r"\D", "", str(raw))
+        if phone.endswith(digits):
+            matches.append(c)
+    return matches
+
+
 def create_client(
     *,
     name: str,
@@ -301,6 +315,29 @@ def change_client_bonus(client_id: int | str, delta_uah: float) -> Any:
             "block_webhook": "1",
         },
     )
+
+
+def close_transaction(
+    *,
+    spot_id: int,
+    transaction_id: int | str,
+    payed_cash: int | None = None,
+    payed_card: int | None = None,
+    spot_tablet_id: int = 1,
+    print_fiscal: int = 0,
+) -> dict:
+    """Закрити чек (суми payed_* у копійках Poster)."""
+    payload: dict[str, Any] = {
+        "spot_id": int(spot_id),
+        "spot_tablet_id": int(spot_tablet_id),
+        "transaction_id": int(transaction_id),
+        "print_fiscal": int(print_fiscal),
+    }
+    if payed_cash is not None:
+        payload["payed_cash"] = int(payed_cash)
+    if payed_card is not None:
+        payload["payed_card"] = int(payed_card)
+    return call("transactions.closeTransaction", data=payload)
 
 
 def get_transaction(transaction_id: int | str) -> dict | None:

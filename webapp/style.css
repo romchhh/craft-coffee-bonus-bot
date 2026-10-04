@@ -32,14 +32,17 @@ html, body {
 }
 
 body {
-  display: flex;
-  justify-content: center;
+  display: block;
+  width: 100%;
+  min-height: 100dvh;
 }
 
 .surface {
   position: relative;
   width: 100%;
-  max-width: 430px;
+  max-width: none;
+  min-height: 100vh;
+  min-height: 100dvh;
   height: 100vh;
   height: 100dvh;
   background: #fff;
@@ -52,11 +55,11 @@ body {
   position: relative;
   z-index: 2;
   flex-shrink: 0;
-  min-height: 72px;
+  min-height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 20px 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 20px 14px;
   border-bottom: 1px solid var(--edge);
   background: #fff;
 }
@@ -91,14 +94,18 @@ body {
   background: #fff;
 }
 
+nav#tabs.tabs-hidden {
+  display: none !important;
+}
+
 nav#tabs {
   position: relative;
   z-index: 5;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin: 0 12px calc(10px + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin: 0 8px calc(8px + env(safe-area-inset-bottom));
   padding: 8px;
   border-radius: 28px;
   background: #f3f3f3;
@@ -1356,6 +1363,165 @@ body.barcode-modal-open .surface {
 @keyframes bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
+}
+
+.referral-hero {
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #111 0%, #2d2d2d 100%);
+  color: #fff;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.referral-hero strong {
+  display: block;
+  font-size: 17px;
+  margin-bottom: 4px;
+}
+
+.referral-hero .muted {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.referral-hero-ico {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  display: grid;
+  place-items: center;
+}
+
+.card-id-line {
+  text-align: center;
+  margin: 10px 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}
+
+.card-id-line .card-id-head {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.card-id-line .card-id-tail {
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.card-id-line .card-id-label {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sub);
+  vertical-align: baseline;
+}
+
+.barcode-modal-number .card-id-line {
+  margin-top: 8px;
+}
+
+.card-id-hint {
+  text-align: center;
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.spot-card-photo {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  margin: 0 0 14px;
+  text-align: left;
+  background: #fff;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--edge);
+}
+
+.spot-card-photo img {
+  display: block;
+  width: 100%;
+  height: 168px;
+  object-fit: cover;
+  background: var(--soft);
+}
+
+.spot-card-photo-body {
+  padding: 14px 16px 16px;
+}
+
+.spot-card-photo-body h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.quest-card {
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 12px;
+}
+
+.quest-card.done {
+  opacity: 0.72;
+}
+
+.quest-card h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.quest-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  color: var(--espresso);
+  margin-bottom: 10px;
+}
+
+.quest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-quest {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--espresso);
+  color: #fff;
+}
+
+.btn-quest.secondary {
+  background: var(--soft);
+  color: var(--ink);
+  border: 1px solid var(--edge);
 }
 
 @media (prefers-reduced-motion: reduce) {

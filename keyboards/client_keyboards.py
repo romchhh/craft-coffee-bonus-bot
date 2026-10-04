@@ -44,22 +44,19 @@ def get_start_keyboard(user_id: int, registered: bool | None = None):
         except Exception:
             registered = False
 
-    keyboard = []
-    if not registered:
-        keyboard.append([KeyboardButton(text="✅ Оформити картку")])
-
-    if registered:
-        # Звичайна кнопка (не web_app): у Telegram initData з reply-keyboard web_app часто не приходить.
-        keyboard.append([KeyboardButton(text="🪪 Моя картка")])
-
-    keyboard.extend(
-        [
-            [KeyboardButton(text="☕ Про Craft Coffee"), KeyboardButton(text="🎁 Бонуси")],
-            [KeyboardButton(text="💬 Підтримка")],
-        ]
-    )
-
     all_admins = get_all_administrators()
+
+    if not registered:
+        keyboard = [[KeyboardButton(text="✅ Оформити картку")]]
+        if user_id in all_admins:
+            keyboard.append([KeyboardButton(text="👨‍💻 Адмін панель")])
+        return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+    keyboard = [
+        [KeyboardButton(text="🪪 Моя картка")],
+        [KeyboardButton(text="☕ Про Craft Coffee"), KeyboardButton(text="🎁 Бонуси")],
+        [KeyboardButton(text="💬 Підтримка")],
+    ]
     if user_id in all_admins:
         keyboard.append([KeyboardButton(text="👨‍💻 Адмін панель")])
 

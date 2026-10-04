@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl
@@ -24,6 +25,7 @@ from config import (
     token as BOT_TOKEN,
 )
 from database_functions.client_db import get_user, update_user_birthday
+from services.quest_bonuses import grant_birthday_bonus, quests_payload
 from database_functions.settings_db import get_welcome_bonus_uah, list_bonus_accruals_for_user
 from services import apple_wallet, poster
 from services import poster_media
@@ -212,9 +214,21 @@ async def api_update_birthday(request: web.Request) -> web.Response:
             )
 
     update_user_birthday(int(tg_user["id"]), birthday)
+    bonus_added = 0.0
+    db_user = get_user(tg_user["id"]) or {}
+    if not db_user.get("birthday_bonus_given"):
+        try:
+            bonus_added = grant_birthday_bonus(int(tg_user["id"]), client_id)
+        except Exception:
+            raise web.HTTPBadGateway(
+                text=json.dumps({"error": "Дату зберегли, але бонус нарахувати не вдалося. Спробуй пізніше"}),
+                content_type="application/json",
+            )
     if client_id:
         invalidate_client(client_id)
-    return web.json_response({"ok": True, "birthday": birthday})
+    return web.json_response(
+        {"ok": True, "birthday": birthday, "bonus_added": bonus_added, "quests": quests_payload(int(tg_user["id"]))}
+    )
 
 
 async def api_me(request: web.Request) -> web.Response:
@@ -247,11 +261,23 @@ async def api_me(request: web.Request) -> web.Response:
         photo_url = f"/api/avatar?t={_wallet_token(int(tg_user['id']), exp)}"
 
     loyalty = build_loyalty_ui(int(tg_user["id"]), bonus)
+    phone_raw = db_user.get("user_phone") or ""
+    phone_digits = ""
+    phone_id_suffix = ""
+    try:
+        if phone_raw:
+            phone_digits = poster.phone_digits(phone_raw)
+            phone_id_suffix = phone_digits[-4:] if len(phone_digits) >= 4 else phone_digits
+    except ValueError:
+        phone_digits = re.sub(r"\D", "", str(phone_raw))
+        phone_id_suffix = phone_digits[-4:] if phone_digits else ""
 
     return web.json_response(
         {
             "name": db_user.get("display_name") or db_user.get("user_first_name") or "Гість",
-            "phone": db_user.get("user_phone"),
+            "phone": phone_raw,
+            "phone_id_suffix": phone_id_suffix,
+            "phone_digits": phone_digits,
             "birthday": birthday,
             "card_number": card_number,
             "poster_client_id": db_user.get("poster_client_id"),
@@ -259,6 +285,7 @@ async def api_me(request: web.Request) -> web.Response:
             "photo_url": photo_url,
             "wallet": apple_wallet.status(),
             "loyalty": loyalty,
+            "quests": quests_payload(int(tg_user["id"])),
         }
     )
 
@@ -478,6 +505,16 @@ async def api_history(request: web.Request) -> web.Response:
                 "date": (db_user.get("join_date") or "")[:10] or datetime.now().strftime("%Y-%m-%d"),
                 "title": "Вітальні бонуси за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
+            }
+        )
+    if db_user.get("birthday_bonus_given"):
+        from database_functions.settings_db import get_birthday_bonus_uah
+
+        bonuses.append(
+            {
+                "date": (db_user.get("last_activity") or "")[:10] or datetime.now().strftime("%Y-%m-%d"),
+                "title": "Бонус за день народження",
+                "amount": get_birthday_bonus_uah(),
             }
         )
     for p in purchases:

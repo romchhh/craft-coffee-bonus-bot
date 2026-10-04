@@ -8,17 +8,29 @@
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
+      if (typeof tg.requestFullscreen === "function") {
+        tg.requestFullscreen();
+      }
+      if (typeof tg.expand === "function") {
+        tg.expand();
+      }
     } catch (_) {}
   }
 
   if (tg) {
     tg.ready();
-    tg.expand();
     applyTelegramChrome();
   }
 
   const content = document.getElementById("content");
   const tabs = document.getElementById("tabs");
+
+  function setTabsVisible(show) {
+    if (!tabs) return;
+    tabs.classList.toggle("tabs-hidden", !show);
+    if (show) tabs.removeAttribute("hidden");
+    else tabs.setAttribute("hidden", "");
+  }
   let state = {
     tab: "card",
     me: null,
@@ -133,6 +145,22 @@
     const dmy = String(raw).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
     if (dmy) return `${dmy[1]}.${dmy[2]}.${dmy[3]}`;
     return String(raw);
+  };
+
+  const cardIdHtml = (cardNumber) => {
+    const digits = String(cardNumber || "").replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length < 4) {
+      return `<div class="card-id-line">${escapeHtml(digits)}</div>`;
+    }
+    const head = digits.slice(0, -4);
+    const tail = digits.slice(-4);
+    return `<div class="card-id-line" aria-label="Номер картки">
+      <span class="card-id-head">${escapeHtml(head)}</span>
+      <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
+      <span class="card-id-label">id</span>
+    </div>
+    <p class="muted card-id-hint">Назви ці 4 цифри на касі, якщо не сканується штрихкод</p>`;
   };
 
   const fmtDateTime = (raw) => {
@@ -320,7 +348,9 @@
   function openBarcodeModal(code) {
     if (!code || !barcodeModal || !barcodeModalSvg) return;
     paintBarcodeInto(barcodeModalSvg, code, true);
-    if (barcodeModalNumber) barcodeModalNumber.textContent = code;
+    if (barcodeModalNumber) {
+      barcodeModalNumber.innerHTML = cardIdHtml(code);
+    }
     barcodeModal.hidden = false;
     barcodeModal.setAttribute("aria-hidden", "false");
     lockAppScroll();
@@ -427,7 +457,7 @@
             <h4>Як отримати Заряд</h4>
             <p class="muted">Перша зарахована покупка дня: 50–150 грн — <strong>1 Заряд</strong>, понад 150 грн — <strong>2</strong>. Наступні того ж дня: <strong>0,5</strong> або <strong>1,5</strong>. Між зарахованими візитами — не менше 2 годин.</p>
             <h4>Що відбувається під час перерви</h4>
-            <p class="muted">Після 30 календарних днів без покупок незавершений Заряд зменшується на 0,5 за день до нуля. Через 6 місяців без покупок кешбек знижується до захищеного мінімуму. Бонуси згорають, якщо 90 днів не було покупок.</p>
+            <p class="muted">Після 30 календарних днів без покупок незавершений Заряд зменшується на 0,5 за день до нуля. Бонуси згорають, якщо 90 днів не було покупок.</p>
             ${bonusLine}
           </div>
         </details>
@@ -450,8 +480,8 @@
       </div>`;
     }
     const code = me.card_number || "";
-    const last4 = code.slice(-4);
-    const head = code.slice(0, -4);
+    const Q = me.quests || {};
+    const refBonus = Q.referral_bonus_uah ?? 10;
     const initial = (me.name || "?").trim().charAt(0).toUpperCase();
     const avatar = me.photo_url
       ? `<img class="avatar" src="${escapeHtml(me.photo_url)}" alt="" width="48" height="48">`
@@ -463,13 +493,11 @@
           ${icon("maximize-2")}
           Натисни, щоб збільшити штрихкод
         </div>
+        ${cardIdHtml(code)}
         <div class="card-holder">
           ${avatar}
           <div class="card-holder-body">
             <div class="card-holder-name">${escapeHtml(me.name)}</div>
-            <div class="personal-id">
-              <small>картка</small><span>${escapeHtml(head)}</span><strong>${escapeHtml(last4)}</strong>
-            </div>
           </div>
         </div>` : `
         <div class="card-holder">
@@ -488,38 +516,59 @@
 
       ${renderLoyaltyCharge(me)}
 
-      <div class="info-grid">
-        <div class="info-item">
-          <div class="ico">${icon("smartphone")}</div>
-          <div>
-            <div class="label">Телефон</div>
-            <div class="value">${escapeHtml(me.phone || "—")}</div>
-          </div>
-        </div>
-        <div class="info-item info-item-birthday">
-          <div class="ico">${icon("cake")}</div>
-          <div class="info-item-body">
-            <div class="label">День народження</div>
-            ${
-              hasBirthday(me.birthday)
-                ? `<div class="value">${escapeHtml(fmtBirthday(me.birthday))}</div>`
-                : `<div class="value muted">Не вказано</div>
-                   <p class="birthday-add-hint">Обери день, місяць і рік 🎂</p>
-                   <div class="birthday-profile-picker" id="profile-birthday-root">
-                     <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
-                     <div class="date-fields">
-                       <label class="date-field"><span>День</span><select data-bd-day></select></label>
-                       <label class="date-field"><span>Місяць</span><select data-bd-month></select></label>
-                       <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
-                     </div>
-                     <button type="button" class="birthday-save-btn" id="save-birthday-btn">Зберегти</button>
-                   </div>
-                   <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`
-            }
-          </div>
-        </div>
-      </div>
+      <button type="button" class="referral-hero" id="open-referral-quest">
+        <span class="referral-hero-ico">${icon("users")}</span>
+        <span>
+          <strong>Приведи друга — ${escapeHtml(String(refBonus))} грн</strong>
+          <span class="muted">Поділись посиланням у розділі «Квести»</span>
+        </span>
+      </button>
     `;
+  }
+
+  function renderQuests() {
+    const me = state.me;
+    if (!me) return renderCard();
+    const Q = me.quests || {};
+    const bBonus = Q.birthday_bonus_uah ?? 10;
+    const rBonus = Q.referral_bonus_uah ?? 10;
+    const bDone = Boolean(Q.birthday_bonus_claimed);
+    const refLink = Q.referral_link || "";
+    const refCount = Q.referrals_count ?? 0;
+
+    let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
+      <p class="muted" style="margin-top:-6px">Виконуй завдання — отримуй бонуси на картку</p>`;
+
+    html += `<div class="quest-card${bDone ? " done" : ""}">
+      <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+      <h3>Поділись датою народження</h3>
+      <p class="muted">${bDone ? "Дякуємо! Бонус уже на балансі." : "Вкажи день народження — нарахуємо бонуси одразу."}</p>
+      ${bDone ? "" : `
+        <div class="birthday-profile-picker" id="profile-birthday-root">
+          <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
+          <div class="date-fields">
+            <label class="date-field"><span>День</span><select data-bd-day></select></label>
+            <label class="date-field"><span>Місяць</span><select data-bd-month></select></label>
+            <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
+          </div>
+          <div class="quest-actions">
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонус</button>
+          </div>
+        </div>
+        <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>`}
+    </div>`;
+
+    html += `<div class="quest-card">
+      <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн</div>
+      <h3>Приведи друга</h3>
+      <p class="muted">Надішли другу посилання. Коли він оформить картку — ти отримаєш бонуси. Запрошено: <strong>${refCount}</strong></p>
+      <div class="quest-actions">
+        <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>Скопіювати посилання</button>
+        <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
+      </div>
+    </div>`;
+
+    return html;
   }
 
   function renderSpots() {
@@ -536,14 +585,15 @@
     }
     html += spots.map((s, i) => {
       const maps = s.maps_url ? ` data-maps-url="${escapeHtml(s.maps_url)}"` : "";
+      const photo = s.photo_url ? escapeHtml(s.photo_url) : "";
       const tag = s.maps_url ? "button" : "div";
       return `
-      <${tag} type="button" class="spot-card spot-card-action" style="animation-delay:${i * 0.05}s"${maps}>
-        <div class="ico">${icon("store")}</div>
-        <div>
+      <${tag} type="button" class="spot-card-photo spot-card-action" style="animation-delay:${i * 0.05}s"${maps}>
+        ${photo ? `<img src="${photo}" alt="" loading="lazy" decoding="async">` : ""}
+        <div class="spot-card-photo-body">
           <h3>${escapeHtml(s.name)}</h3>
           <div class="muted">${escapeHtml(s.address || "—")}</div>
-          ${s.maps_url ? `<span class="spot-open-map">${icon("navigation")} Маршрут</span>` : ""}
+          ${s.maps_url ? `<span class="spot-open-map">${icon("navigation")} Маршрут до цієї кавʼярні</span>` : ""}
         </div>
       </${tag}>`;
     }).join("");
@@ -784,6 +834,7 @@
     let html = "";
     try {
       if (state.tab === "card") html = renderCard();
+      else if (state.tab === "quests") html = renderQuests();
       else if (state.tab === "spots") html = renderSpots();
       else if (state.tab === "menu") html = renderMenu();
       else if (state.tab === "history") html = renderHistory();
@@ -852,6 +903,11 @@
       });
     });
 
+    const openReferral = document.getElementById("open-referral-quest");
+    if (openReferral) {
+      openReferral.addEventListener("click", () => setTab("quests"));
+    }
+
     const birthdayRoot = document.getElementById("profile-birthday-root");
     const saveBirthdayBtn = document.getElementById("save-birthday-btn");
     const birthdayError = document.getElementById("birthday-error");
@@ -870,7 +926,13 @@
         if (birthdayError) birthdayError.classList.add("hidden");
         try {
           const res = await apiPost("/me/birthday", { birthday: iso });
-          if (state.me) state.me.birthday = res.birthday;
+          if (state.me) {
+            state.me.birthday = res.birthday;
+            if (res.quests) state.me.quests = res.quests;
+            if (res.bonus_added) {
+              state.me.bonus = Number(state.me.bonus || 0) + Number(res.bonus_added);
+            }
+          }
           render();
         } catch (err) {
           saveBirthdayBtn.disabled = false;
@@ -878,6 +940,33 @@
             birthdayError.textContent = err.message || "Не вдалося зберегти";
             birthdayError.classList.remove("hidden");
           }
+        }
+      });
+    }
+
+    const refLink = state.me?.quests?.referral_link || "";
+    const copyRef = document.getElementById("copy-referral-link");
+    if (copyRef && refLink) {
+      copyRef.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(refLink);
+          copyRef.textContent = "Скопійовано ✓";
+          setTimeout(() => { copyRef.textContent = "Скопіювати посилання"; }, 2000);
+        } catch (_) {
+          window.prompt("Скопіюй посилання:", refLink);
+        }
+      });
+    }
+    const shareRef = document.getElementById("share-referral-link");
+    if (shareRef && refLink) {
+      shareRef.addEventListener("click", () => {
+        const text = "Оформи картку Craft Coffee — бонуси за каву ☕";
+        if (navigator.share) {
+          navigator.share({ title: "Craft Coffee", text, url: refLink }).catch(() => {});
+        } else if (tg?.openTelegramLink) {
+          tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`);
+        } else {
+          openExternal(refLink);
         }
       });
     }
@@ -913,7 +1002,7 @@
       state.spots = spots.items || [];
       state.spotsInstagram = spots.instagram_url || "";
       state.history = history;
-      if (state.tab === "spots" || state.tab === "history") render();
+      if (state.tab === "spots" || state.tab === "history" || state.tab === "quests") render();
     } catch (e) {
       console.warn("secondary load", e);
       if (!state.spots) state.spots = [];
@@ -939,6 +1028,7 @@
     const maxAttempts = 6;
     if (attempt === 0) {
       appReady = false;
+      setTabsVisible(false);
       tabs.setAttribute("aria-busy", "true");
       content.innerHTML = `<div class="loader"><div class="loader-icon">${icon("coffee")}</div><p>Завантаження…</p></div>`;
       paintIcons();
@@ -958,6 +1048,7 @@
       state.history = { purchases: [], bonuses: [] };
       appReady = true;
       tabs.removeAttribute("aria-busy");
+      setTabsVisible(true);
       try {
         if (typeof tg?.enableClosingConfirmation === "function") {
           tg.enableClosingConfirmation();
@@ -974,6 +1065,7 @@
       }
       appReady = true;
       tabs.removeAttribute("aria-busy");
+      setTabsVisible(false);
       const msg = String(e.message || "");
       let kind = "generic";
       if (e.code === "session" || /сесію Telegram/i.test(msg)) kind = "session";
@@ -1006,11 +1098,9 @@
   async function boot() {
     if (tg) {
       tg.ready();
-      try {
-        tg.expand();
-      } catch (_) {}
       applyTelegramChrome();
       await sleep(80);
+      applyTelegramChrome();
     }
     await loadAll();
   }
@@ -1025,7 +1115,10 @@
       });
     };
     try {
-      tg.onEvent("viewportChanged", kickInit);
+      tg.onEvent("viewportChanged", () => {
+        applyTelegramChrome();
+        kickInit();
+      });
       tg.onEvent("themeChanged", kickInit);
       tg.onEvent("webAppReady", kickInit);
     } catch (_) {}
