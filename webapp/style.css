@@ -1241,6 +1241,20 @@ body.barcode-modal-open .surface {
 }
 
 .price.plus { color: #1f7a45; background: rgba(46, 160, 90, 0.12); }
+
+.hist-extra {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.hist-extra.plus {
+  color: #1f7a45;
+}
+
+.hist-extra.minus {
+  color: #b42318;
+}
 .price.minus { color: #b42318; background: rgba(180, 50, 40, 0.10); }
 
 .pills {

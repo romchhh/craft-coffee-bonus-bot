@@ -63,7 +63,6 @@
     menuCategories: null,
     menuError: null,
     history: null,
-    histFilter: "all",
   };
   const barcodeModal = document.getElementById("barcode-modal");
   const barcodeModalSvg = document.getElementById("barcode-modal-svg");
@@ -843,35 +842,54 @@
     updateMenuCatFromScroll(sections);
   }
 
+  function historySortKey(raw) {
+    const m = String(raw || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return "00000000000000";
+    return `${m[1]}${m[2]}${m[3]}${m[4] || "00"}${m[5] || "00"}${m[6] || "00"}`;
+  }
+
+  function buildHistoryTimeline(hist) {
+    const rows = [];
+    for (const p of hist.purchases || []) {
+      rows.push({ kind: "purchase", date: p.date, purchase: p });
+    }
+    for (const b of hist.bonuses || []) {
+      rows.push({ kind: "bonus", date: b.date, bonus: b });
+    }
+    rows.sort((a, b) => historySortKey(b.date).localeCompare(historySortKey(a.date)));
+    return rows;
+  }
+
   function renderHistory() {
     const hist = state.history || { purchases: [], bonuses: [] };
-    const filter = state.histFilter;
     let html = `<div class="section-title"><div class="title-ico">${icon("history")}</div><h2>Історія</h2></div>
-      <div class="pills">
-        <button type="button" data-filter="all" class="${filter === "all" ? "active" : ""}">${icon("layout-grid")} Усе</button>
-        <button type="button" data-filter="purchases" class="${filter === "purchases" ? "active" : ""}">${icon("shopping-bag")} Покупки</button>
-        <button type="button" data-filter="bonuses" class="${filter === "bonuses" ? "active" : ""}">${icon("gift")} Бонуси</button>
-      </div>`;
+      <p class="muted" style="margin-top:-6px">Покупки та бонуси в одному списку</p>`;
 
     const blocks = [];
-    if (filter === "all" || filter === "purchases") {
-      for (const p of hist.purchases || []) {
+    for (const row of buildHistoryTimeline(hist)) {
+      if (row.kind === "purchase") {
+        const p = row.purchase;
+        const cashback = Number(p.cashback_uah || 0);
+        const spent = Number(p.bonus_spent || 0);
+        let extra = "";
+        if (cashback > 0) {
+          extra += `<div class="hist-extra plus">+${fmtMoney(cashback)} кешбек</div>`;
+        }
+        if (spent > 0) {
+          extra += `<div class="hist-extra minus">−${fmtMoney(spent)} бонусів</div>`;
+        }
         blocks.push(`
           <div class="hist-card">
             <div class="ico">${icon("shopping-bag")}</div>
             <div style="flex:1;min-width:0">
               <div class="muted">${escapeHtml(fmtDateTime(p.date))} · ${escapeHtml(p.spot || "Craft Coffee")}</div>
               <h3>Покупка · ${fmtMoney(p.sum)}</h3>
-              <div class="muted" style="margin-top:4px">
-                Сплачено ${fmtMoney(p.payed)}
-                ${p.bonus_spent ? ` · −${fmtMoney(p.bonus_spent)} бонусів` : ""}
-              </div>
+              <div class="muted" style="margin-top:4px">Сплачено ${fmtMoney(p.payed)}</div>
+              ${extra}
             </div>
           </div>`);
-      }
-    }
-    if (filter === "all" || filter === "bonuses") {
-      for (const b of hist.bonuses || []) {
+      } else {
+        const b = row.bonus;
         const positive = Number(b.amount) >= 0;
         blocks.push(`
           <div class="hist-card">
@@ -942,13 +960,6 @@
         if (e.key === "Enter" || e.key === " ") open(e);
       });
     }
-    content.querySelectorAll("[data-filter]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.histFilter = btn.dataset.filter;
-        render();
-      });
-    });
-
     const openExternal = (url) => {
       if (!url) return;
       try {

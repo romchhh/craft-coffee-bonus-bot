@@ -481,18 +481,33 @@ async def api_history(request: web.Request) -> web.Response:
         return web.json_response({"purchases": [], "bonuses": []})
 
     client_id = db_user["poster_client_id"]
+    tg_id = int(tg_user["id"])
+    accruals_by_tx: dict[str, dict] = {}
+    for acc in list_bonus_accruals_for_user(tg_id):
+        tid = str(acc.get("transaction_id") or "")
+        if tid:
+            accruals_by_tx[tid] = acc
+
     purchases = []
     try:
         txs = poster.get_transactions_for_client(client_id)
         spots = {int(s["spot_id"]): s.get("spot_name") or "" for s in poster.get_spots()}
         for t in sorted(txs, key=lambda x: x.get("date_close_date") or "", reverse=True)[:40]:
+            tid = str(t.get("transaction_id") or poster.transaction_id_from_row(t) or "")
+            acc = accruals_by_tx.get(tid)
+            cashback_uah = float(acc.get("bonus_uah") or 0) if acc else 0.0
+            close_date = t.get("date_close_date") or "—"
+            if acc and acc.get("processed_at"):
+                close_date = str(acc.get("processed_at"))[:19] or close_date
             purchases.append(
                 {
-                    "date": t.get("date_close_date") or "—",
+                    "transaction_id": tid,
+                    "date": close_date,
                     "spot": spots.get(int(t.get("spot_id") or 0), "Craft Coffee"),
                     "sum": poster.from_minor(t.get("sum")),
                     "payed": poster.from_minor(t.get("payed_sum")),
                     "bonus_spent": poster.from_minor(t.get("payed_bonus")),
+                    "cashback_uah": cashback_uah,
                 }
             )
     except Exception as exc:
@@ -502,7 +517,7 @@ async def api_history(request: web.Request) -> web.Response:
     if db_user.get("welcome_bonus_given"):
         bonuses.append(
             {
-                "date": (db_user.get("join_date") or "")[:10] or datetime.now().strftime("%Y-%m-%d"),
+                "date": (db_user.get("join_date") or "")[:19] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "title": "Вітальні бонуси за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
             }
@@ -512,27 +527,9 @@ async def api_history(request: web.Request) -> web.Response:
 
         bonuses.append(
             {
-                "date": (db_user.get("last_activity") or "")[:10] or datetime.now().strftime("%Y-%m-%d"),
+                "date": (db_user.get("last_activity") or "")[:19] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "title": "Бонус за день народження",
                 "amount": get_birthday_bonus_uah(),
-            }
-        )
-    for p in purchases:
-        if p.get("bonus_spent"):
-            bonuses.append(
-                {
-                    "date": str(p["date"])[:10],
-                    "title": "Списано на покупку",
-                    "amount": -float(p["bonus_spent"]),
-                }
-            )
-
-    for acc in list_bonus_accruals_for_user(int(tg_user["id"])):
-        bonuses.append(
-            {
-                "date": (acc.get("processed_at") or "")[:16],
-                "title": f"Кешбек з покупки {float(acc.get('payed_sum_uah') or 0):g} грн",
-                "amount": float(acc.get("bonus_uah") or 0),
             }
         )
 
