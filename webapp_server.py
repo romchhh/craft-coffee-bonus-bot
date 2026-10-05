@@ -686,6 +686,13 @@ async def poster_webhook(request: web.Request) -> web.Response:
             from main import bot
             result = await process_closed_transaction(transaction_id, bot=bot)
             log.info("loyalty webhook tx=%s result=%s", transaction_id, result)
+            # Повернення / зміна чека, що вже кваліфікував реферал
+            if result.get("status") == "skip" and result.get("reason") == "already_processed":
+                from services.referrals import review_transaction_for_referral
+
+                rev = review_transaction_for_referral(str(transaction_id))
+                if rev.get("status") != "skip":
+                    log.info("referral review tx=%s result=%s", transaction_id, rev)
         except Exception:
             log.exception("loyalty webhook failed tx=%s", transaction_id)
 

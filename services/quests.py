@@ -17,7 +17,6 @@ from database_functions.settings_db import (
     get_quest_drinks_reward_uah,
     get_quest_visits_reward_uah,
     get_quest_window_days,
-    get_referral_bonus_uah,
     rewards_snapshot,
 )
 from services import poster
@@ -423,8 +422,7 @@ def on_purchase_for_quests(
 
 def build_quests_ui(user_id: int) -> dict:
     """Дані для мініапу + сумісність зі старим quests_payload."""
-    from services.quest_bonuses import referral_link_for
-    from database_functions.client_db import count_successful_referrals
+    from services.referrals import referral_ui_payload
 
     user = get_user(user_id) or {}
     if user.get("registered"):
@@ -540,14 +538,13 @@ def build_quests_ui(user_id: int) -> dict:
 
     birthday = user.get("birthday")
     has_bday = bool(birthday and birthday != "0000-00-00")
+    ref_ui = referral_ui_payload(int(user_id))
 
     return {
         "birthday_bonus_uah": get_birthday_bonus_uah(),
-        "referral_bonus_uah": get_referral_bonus_uah(),
         "birthday_filled": has_bday,
         "birthday_bonus_claimed": bool(user.get("birthday_bonus_given")),
-        "referral_link": referral_link_for(int(user_id)),
-        "referrals_count": count_successful_referrals(user_id),
+        **ref_ui,
         "cycle_id": cycle_id,
         "cycle_ends": end.strftime("%Y-%m-%d") if end else None,
         "active": active,

@@ -8,7 +8,7 @@ def admin_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="Розсилка"), KeyboardButton(text="Статистика")],
         [KeyboardButton(text="Адміністратори"), KeyboardButton(text="Посилання")],
-        [KeyboardButton(text="🎁 Лояльність")],
+        [KeyboardButton(text="🎁 Лояльність"), KeyboardButton(text="👥 Реферали")],
         [KeyboardButton(text="Головне меню")],
     ]
 
@@ -31,8 +31,27 @@ def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Досягнення 15 днів", callback_data="loyalty_edit:ach_days_15_reward_uah")],
             [InlineKeyboardButton(text="✏️ Досягнення 30 днів", callback_data="loyalty_edit:ach_days_30_reward_uah")],
             [InlineKeyboardButton(text="🔄 Оновити", callback_data="loyalty_refresh")],
+            [InlineKeyboardButton(text="👥 Реферали на перевірці", callback_data="referral_review_list")],
         ]
     )
+
+
+def get_referral_review_keyboard(items: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    for ref in items[:20]:
+        rid = ref.get("id")
+        friend = ref.get("friend_user_id")
+        referrer = ref.get("referrer_user_id")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"✅ #{rid} друг {friend} ← {referrer}",
+                    callback_data=f"referral_approve:{rid}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="🔄 Оновити", callback_data="referral_review_list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_export_database_keyboard() -> InlineKeyboardMarkup:

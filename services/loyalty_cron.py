@@ -174,6 +174,15 @@ async def _cron_loop(bot) -> None:
         except Exception:
             log.exception("loyalty cron tick #%s failed", tick)
         try:
+            from services.referrals import expire_stale_bound, process_due_referral_grants
+
+            expire_stale_bound()
+            grant_report = await process_due_referral_grants(bot=bot)
+            if grant_report.get("granted") or grant_report.get("errors"):
+                log.info("referral grants: %s", grant_report)
+        except Exception:
+            log.exception("referral grant cron tick #%s failed", tick)
+        try:
             await asyncio.wait_for(_cron_stop.wait(), timeout=LOYALTY_CRON_INTERVAL_SEC)
             log.info("loyalty cron stopped after tick #%s", tick)
             break

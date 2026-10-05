@@ -50,6 +50,7 @@ def _migrate():
         "birthday_bonus_given": "INTEGER DEFAULT 0",
         "referral_bonus_paid": "INTEGER DEFAULT 0",
         "annual_birthday_year": "INTEGER",
+        "referral_click_at": "TEXT",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -138,6 +139,7 @@ def save_registration(
 
 
 def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
+    """Низькорівневий запис (без sticky-логіки)."""
     cursor.execute(
         "UPDATE users SET referred_by_user_id = ?, last_activity = ? WHERE user_id = ?",
         (
@@ -147,6 +149,69 @@ def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
         ),
     )
     conn.commit()
+
+
+def set_referred_by_sticky(
+    user_id: int | str,
+    referrer_user_id: int,
+    *,
+    ttl_days: int = 30,
+    force_keep_existing: bool = False,
+) -> bool:
+    """
+    Перший запрошувач закріплюється.
+    Якщо незавершене запрошення старше ttl_days і юзер ще не зареєстрований — можна замінити.
+    Після реєстрації зміна заборонена (force_keep_existing=True лише зберігає існуючого).
+    """
+    from datetime import datetime, timedelta
+
+    from utils.kyiv_time import KYIV_TZ, now_kyiv
+
+    user = get_user(user_id)
+    if not user:
+        # ще немає рядка — створить /start; тут лише no-op
+        return False
+    if user.get("registered") and user.get("referred_by_user_id"):
+        return int(user["referred_by_user_id"]) == int(referrer_user_id)
+
+    existing = user.get("referred_by_user_id")
+    click_at = user.get("referral_click_at")
+    now = now_kyiv()
+    if existing and force_keep_existing:
+        return True
+    if existing:
+        keep = True
+        if click_at and not user.get("registered"):
+            try:
+                started = datetime.strptime(str(click_at)[:19], "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=KYIV_TZ
+                )
+                if now - started > timedelta(days=int(ttl_days)):
+                    keep = False
+            except ValueError:
+                keep = True
+        if keep:
+            return int(existing) == int(referrer_user_id)
+
+    now_s = kyiv_now_str()
+    cursor.execute(
+        """
+        UPDATE users SET
+            referred_by_user_id = ?,
+            referral_click_at = COALESCE(referral_click_at, ?),
+            last_activity = ?
+        WHERE user_id = ?
+        """,
+        (int(referrer_user_id), now_s, now_s, user_id),
+    )
+    # якщо замінюємо прострочене — оновити click_at
+    if existing and not user.get("registered"):
+        cursor.execute(
+            "UPDATE users SET referral_click_at = ?, last_activity = ? WHERE user_id = ?",
+            (now_s, now_s, user_id),
+        )
+    conn.commit()
+    return True
 
 
 def mark_birthday_bonus_given(user_id: int | str) -> None:

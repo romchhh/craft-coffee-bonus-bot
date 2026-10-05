@@ -609,13 +609,24 @@
       </div>`);
     }
 
+    const canInvite = Boolean(Q.referral_can_invite);
+    const refHint = Q.referral_hint || (
+      canInvite
+        ? `+${rBonus} грн після покупки друга від ${Q.referral_min_cash_uah ?? 50} грн грошима. Доступно наступного дня о 00:00.`
+        : "Посилання відкриється після твоєї першої покупки в Kraft."
+    );
+    const refReg = Number(Q.referrals_registered ?? 0);
+    const refOk = Number(Q.referrals_successful ?? refCount);
+    const refEarned = Number(Q.referrals_earned_uah ?? 0);
+    const refReview = Number(Q.referrals_owner_review ?? 0);
     activeParts.push(`
       <div class="quest-card">
         <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
         <h3>Приведи друга</h3>
-        <p class="muted">Бонус після <strong>першої покупки</strong> друга з карткою.${refCount ? ` Запрошено: <strong>${refCount}</strong>.` : ""}</p>
+        <p class="muted">${escapeHtml(refHint)}</p>
+        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
         <div class="quest-actions">
-          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>Скопіювати</button>
+          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>${canInvite ? "Скопіювати" : "Спочатку покупка"}</button>
           <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
         </div>
       </div>`);
@@ -647,16 +658,15 @@
         </div>`);
     }
 
-    if (refCount > 0) {
-      const totalRef = refCount * rBonus;
+    if (refEarned > 0 || refOk > 0) {
       doneParts.push(`
       <div class="quest-card done">
         <div class="quest-card-head">
-          <h3>Друзі за твоїм посиланням</h3>
+          <h3>Винагороди за друзів</h3>
           ${doneBadge}
         </div>
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(totalRef))} грн</div>
-        <p class="muted">З першою покупкою: <strong>${refCount}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong></p>
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(refEarned))} грн</div>
+        <p class="muted">Успішних запрошень: <strong>${refOk}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong> (нарахування наступного дня о 00:00)</p>
       </div>`);
     }
 

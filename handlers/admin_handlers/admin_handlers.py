@@ -8,6 +8,7 @@ from keyboards.admin_keyboards import (
     admin_keyboard,
     get_export_database_keyboard,
     get_loyalty_settings_keyboard,
+    get_referral_review_keyboard,
 )
 from Content.texts import get_greeting_message
 from utils.admin_functions import generate_database_export, format_statistics_message
@@ -182,6 +183,77 @@ async def loyalty_save_cashback(message: types.Message, state: FSMContext):
         reply_markup=admin_keyboard(),
     )
     await message.answer(_loyalty_text(), parse_mode="HTML", reply_markup=get_loyalty_settings_keyboard())
+
+
+def _referral_review_text(items: list) -> str:
+    if not items:
+        return "👥 <b>Реферали на перевірці</b>\n\nЧерга порожня."
+    lines = [
+        "👥 <b>Реферали на перевірці</b>",
+        "З 6-го успішного запрошення за день — ручне підтвердження Owner.",
+        "",
+    ]
+    for ref in items[:20]:
+        lines.append(
+            f"• #{ref.get('id')}: друг <code>{ref.get('friend_user_id')}</code> ← "
+            f"<code>{ref.get('referrer_user_id')}</code> · "
+            f"{float(ref.get('amount_uah') or 0):g} грн · чек {ref.get('qualifying_tx_id') or '—'}"
+        )
+    return "\n".join(lines)
+
+
+@router.message(IsAdmin(), F.text == "👥 Реферали")
+async def referral_review_menu(message: types.Message):
+    from database_functions.referrals_db import list_owner_review
+
+    items = list_owner_review()
+    await message.answer(
+        _referral_review_text(items),
+        parse_mode="HTML",
+        reply_markup=get_referral_review_keyboard(items),
+    )
+
+
+@router.callback_query(IsAdmin(), F.data == "referral_review_list")
+async def referral_review_list(callback: types.CallbackQuery):
+    from database_functions.referrals_db import list_owner_review
+
+    items = list_owner_review()
+    await callback.message.edit_text(
+        _referral_review_text(items),
+        parse_mode="HTML",
+        reply_markup=get_referral_review_keyboard(items),
+    )
+    await callback.answer()
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("referral_approve:"))
+async def referral_approve(callback: types.CallbackQuery):
+    from services.referrals import approve_owner_review
+    from database_functions.referrals_db import list_owner_review
+
+    try:
+        rid = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Невірний id", show_alert=True)
+        return
+    result = approve_owner_review(rid)
+    if result.get("status") != "ok":
+        await callback.answer("Вже оброблено або не знайдено", show_alert=True)
+    else:
+        await callback.answer(
+            f"Ок · нарахування {result.get('available_at')}",
+            show_alert=True,
+        )
+    items = list_owner_review()
+    try:
+        await callback.message.edit_text(
+            _referral_review_text(items),
+            parse_mode="HTML",
+            reply_markup=get_referral_review_keyboard(items),
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(IsAdmin(), F.data == "export_database")

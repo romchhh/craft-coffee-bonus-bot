@@ -102,21 +102,26 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         log.warning("quests update failed user=%s: %s", user["user_id"], exc)
 
     try:
-        from services.quest_bonuses import process_referral_on_first_purchase
-        from Content.texts import get_referral_bonus_notification
-        from keyboards.client_keyboards import get_open_card_inline
+        from services.referrals import qualify_referral_on_purchase
 
-        ref_amount, referrer_id, friend_name = process_referral_on_first_purchase(int(user["user_id"]))
-        if bot is not None and ref_amount > 0 and referrer_id:
+        ref_result = qualify_referral_on_purchase(
+            int(user["user_id"]),
+            payed_sum_uah=payed_sum_uah,
+            transaction_id=tid,
+            closed_at=closed_at,
+        )
+        if ref_result.get("status") == "owner_review" and bot is not None:
             try:
                 await bot.send_message(
-                    referrer_id,
-                    get_referral_bonus_notification(friend_name, ref_amount),
+                    int(ref_result["referrer_user_id"]),
+                    "⏳ <b>Винагорода на перевірці</b>\n\n"
+                    f"Запрошення друга <b>{ref_result.get('friend_name') or 'Друг'}</b> "
+                    "отримано. Нарахування після перевірки Owner.",
                     parse_mode="HTML",
-                    reply_markup=get_open_card_inline(),
                 )
             except Exception as exc:
-                log.info("referral notify failed: %s", exc)
+                log.info("referral review notify failed: %s", exc)
+        # фактичне +повідомлення — наступного дня о 00:00 (cron)
     except Exception as exc:
         log.warning("referral on purchase failed user=%s: %s", user["user_id"], exc)
 

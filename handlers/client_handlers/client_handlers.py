@@ -87,7 +87,15 @@ async def start_command(message: types.Message, state: FSMContext):
         add_user(user.id, user.username, user.first_name, user.last_name, user.language_code, ref_link)
     update_user_activity(user.id)
     if referred_by and not is_registered(user.id):
-        await state.update_data(referred_by=referred_by)
+        from services.referrals import remember_referral_click
+
+        remember_referral_click(user.id, referred_by)
+        # sticky: у FSM лише якщо в БД закріпився цей запрошувач
+        db_u = get_user(user.id)
+        if db_u and db_u.get("referred_by_user_id"):
+            await state.update_data(referred_by=int(db_u["referred_by_user_id"]))
+        else:
+            await state.update_data(referred_by=referred_by)
 
     if is_registered(user.id):
         db_user = get_user(user.id)
@@ -228,11 +236,14 @@ async def _finish_registration(
         welcome_bonus_given=bonus_given,
     )
     from database_functions.charge_db import init_loyalty_for_user
-    from services.quest_bonuses import bind_referrer_on_registration
+    from services.referrals import bind_referrer_on_registration
     from services.quests import build_quests_ui
 
     init_loyalty_for_user(message.from_user.id)
     referred_by = data.get("referred_by")
+    db_after = get_user(message.from_user.id)
+    if not referred_by and db_after and db_after.get("referred_by_user_id"):
+        referred_by = int(db_after["referred_by_user_id"])
     if referred_by:
         bind_referrer_on_registration(message.from_user.id, int(referred_by))
     try:
