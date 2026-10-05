@@ -551,20 +551,29 @@
     `;
   }
 
+  function renderQuestProgressBar(q) {
+    const target = Number(q.target || 1);
+    const progress = Math.min(Number(q.progress || 0), target);
+    const pct = target > 0 ? Math.min(100, (progress / target) * 100) : 0;
+    return `<div class="quest-progress-meta">${progress % 1 === 0 ? progress : progress.toFixed(1)} / ${target % 1 === 0 ? target : target.toFixed(1)}</div>
+      <div class="charge-track" aria-hidden="true"><div class="charge-fill" style="width:${pct}%"></div></div>`;
+  }
+
   function renderQuests() {
     const me = state.me;
     if (!me) return renderCard();
     const Q = me.quests || {};
-    const bBonus = Q.birthday_bonus_uah ?? 10;
+    const bBonus = Q.birthday_bonus_uah ?? 20;
     const rBonus = Q.referral_bonus_uah ?? 10;
     const bDone = Boolean(Q.birthday_bonus_claimed);
     const refLink = Q.referral_link || "";
     const refCount = Number(Q.referrals_count ?? 0);
     const doneBadge = `<span class="quest-status">${icon("check")} Виконано</span>`;
     const bdayDisplay = hasBirthday(me.birthday) ? fmtBirthday(me.birthday) : "";
+    const cycleEnds = Q.cycle_ends ? ` · до ${escapeHtml(Q.cycle_ends)}` : "";
 
     let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
-      <p class="muted" style="margin-top:-6px">Виконуй завдання — отримуй бонуси на картку</p>`;
+      <p class="muted" style="margin-top:-6px">Завдання з бонусами${cycleEnds}</p>`;
 
     const activeParts = [];
     const doneParts = [];
@@ -596,7 +605,7 @@
           ${doneBadge}
         </div>
         <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
-        <p class="muted">Бонус нараховано на картку.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
+        <p class="muted">Бонус нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
       </div>`);
     }
 
@@ -604,12 +613,39 @@
       <div class="quest-card">
         <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
         <h3>Приведи друга</h3>
-        <p class="muted">Надішли посилання. Коли друг оформить картку — отримаєш бонуси.${refCount ? ` Вже запрошено: <strong>${refCount}</strong>.` : ""}</p>
+        <p class="muted">Бонус після <strong>першої покупки</strong> друга з карткою.${refCount ? ` Запрошено: <strong>${refCount}</strong>.` : ""}</p>
         <div class="quest-actions">
           <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>Скопіювати</button>
           <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
         </div>
       </div>`);
+
+    for (const q of Q.active || []) {
+      const reward = Number(q.reward_uah || 0);
+      const rewardLine = q.symbolic
+        ? `<div class="quest-reward">${icon("award")} Відзнака</div>`
+        : `<div class="quest-reward">${icon("sparkles")} +${escapeHtml(String(reward))} грн</div>`;
+      activeParts.push(`
+        <div class="quest-card">
+          ${rewardLine}
+          <h3>${escapeHtml(q.title || "Квест")}</h3>
+          <p class="muted">${escapeHtml(q.hint || "")}</p>
+          ${renderQuestProgressBar(q)}
+        </div>`);
+    }
+
+    for (const q of Q.done || []) {
+      const reward = Number(q.reward_uah || 0);
+      doneParts.push(`
+        <div class="quest-card done">
+          <div class="quest-card-head">
+            <h3>${escapeHtml(q.title || "Квест")}</h3>
+            ${doneBadge}
+          </div>
+          <div class="quest-reward">${q.symbolic ? `${icon("award")} Відзнака` : `${icon("sparkles")} +${escapeHtml(String(reward))} грн`}</div>
+          <p class="muted">${escapeHtml(q.hint || "Виконано")}</p>
+        </div>`);
+    }
 
     if (refCount > 0) {
       const totalRef = refCount * rBonus;
@@ -620,7 +656,7 @@
           ${doneBadge}
         </div>
         <div class="quest-reward">${icon("users")} +${escapeHtml(String(totalRef))} грн</div>
-        <p class="muted">Оформили картку: <strong>${refCount}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong> за кожного</p>
+        <p class="muted">З першою покупкою: <strong>${refCount}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong></p>
       </div>`);
     }
 

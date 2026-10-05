@@ -1,6 +1,6 @@
-from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-    
+
+
 class Mailing(StatesGroup):
     content = State()
     media = State()
@@ -22,4 +22,4 @@ class AdminManagement(StatesGroup):
 class LoyaltySettings(StatesGroup):
     welcome_bonus = State()
     cashback_percent = State()
-    
+    edit_reward = State()

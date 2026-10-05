@@ -26,7 +26,7 @@ from config import (
 )
 from database_functions.client_db import get_user, update_user_birthday
 from utils.kyiv_time import kyiv_now_str
-from services.quest_bonuses import grant_birthday_bonus, quests_payload
+from services.quest_bonuses import grant_birthday_bonus, maybe_grant_annual_birthday, quests_payload
 from database_functions.settings_db import get_welcome_bonus_uah, list_bonus_accruals_for_user
 from services import apple_wallet, poster
 from services import poster_media
@@ -260,6 +260,13 @@ async def api_me(request: web.Request) -> web.Response:
     if avatar:
         exp = int(datetime.now().timestamp()) + 86400
         photo_url = f"/api/avatar?t={_wallet_token(int(tg_user['id']), exp)}"
+
+    try:
+        annual = maybe_grant_annual_birthday(int(tg_user["id"]))
+        if annual > 0:
+            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"]) if db_user.get("poster_client_id") else bonus
+    except Exception as exc:
+        log.warning("annual birthday check: %s", exc)
 
     loyalty = build_loyalty_ui(int(tg_user["id"]), bonus)
     phone_raw = db_user.get("user_phone") or ""

@@ -1622,6 +1622,13 @@ body.barcode-modal-open .surface {
   margin-bottom: 10px;
 }
 
+.quest-progress-meta {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sub);
+}
+
 .quest-actions {
   display: flex;
   flex-wrap: wrap;

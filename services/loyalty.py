@@ -93,6 +93,33 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     except Exception as exc:
         log.warning("charge credit failed user=%s: %s", user["user_id"], exc)
 
+    quest_events: list[dict] = []
+    try:
+        from services.quests import on_purchase_for_quests
+
+        quest_events = on_purchase_for_quests(int(user["user_id"]), tx, closed_at=closed_at)
+    except Exception as exc:
+        log.warning("quests update failed user=%s: %s", user["user_id"], exc)
+
+    try:
+        from services.quest_bonuses import process_referral_on_first_purchase
+        from Content.texts import get_referral_bonus_notification
+        from keyboards.client_keyboards import get_open_card_inline
+
+        ref_amount, referrer_id, friend_name = process_referral_on_first_purchase(int(user["user_id"]))
+        if bot is not None and ref_amount > 0 and referrer_id:
+            try:
+                await bot.send_message(
+                    referrer_id,
+                    get_referral_bonus_notification(friend_name, ref_amount),
+                    parse_mode="HTML",
+                    reply_markup=get_open_card_inline(),
+                )
+            except Exception as exc:
+                log.info("referral notify failed: %s", exc)
+    except Exception as exc:
+        log.warning("referral on purchase failed user=%s: %s", user["user_id"], exc)
+
     balance_uah = None
     if bonus_uah > 0:
         try:
@@ -107,6 +134,11 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         except Exception as exc:
             log.exception("change_client_bonus client=%s tx=%s", client_id, tid)
             return {"status": "error", "reason": f"bonus_failed: {exc}"}
+    elif quest_events:
+        try:
+            balance_uah = poster.get_client_bonus_uah(client_id)
+        except Exception:
+            pass
 
     if bot is not None:
         try:
@@ -121,6 +153,31 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
             )
         except Exception as exc:
             log.warning("telegram notify failed user=%s: %s", user["user_id"], exc)
+        for ev in quest_events:
+            if not ev.get("completed"):
+                continue
+            reward = float(ev.get("reward_uah") or 0)
+            title = ev.get("title") or "Квест"
+            if ev.get("symbolic") and reward <= 0:
+                text = f"🏅 <b>{title}</b>\n\nВідзнаку додано в розділ «Квести»."
+            elif reward > 0:
+                text = (
+                    f"🎯 <b>{title}</b>\n\n"
+                    f"Нараховано <b>+{reward:g} грн</b> бонусів."
+                )
+            else:
+                continue
+            try:
+                from keyboards.client_keyboards import get_open_card_inline
+
+                await bot.send_message(
+                    int(user["user_id"]),
+                    text,
+                    parse_mode="HTML",
+                    reply_markup=get_open_card_inline(),
+                )
+            except Exception as exc:
+                log.info("quest notify failed: %s", exc)
 
     return {
         "status": "ok",
@@ -130,6 +187,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         "payed_sum_uah": payed_sum_uah,
         "bonus_uah": bonus_uah,
         "balance_uah": balance_uah,
+        "quest_events": quest_events,
     }
 
 

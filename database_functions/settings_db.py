@@ -1,11 +1,37 @@
 """Налаштування лояльності (вітальний бонус, % кешбеку)."""
 from __future__ import annotations
 
-from config import BIRTHDAY_BONUS_UAH, CASHBACK_PERCENT, REFERRAL_BONUS_UAH, WELCOME_BONUS_UAH
+from config import (
+    ACH_DAYS_15_REWARD_UAH,
+    ACH_DAYS_30_REWARD_UAH,
+    ACH_DAYS_5_REWARD_UAH,
+    ANNUAL_BIRTHDAY_BONUS_UAH,
+    BIRTHDAY_BONUS_UAH,
+    CASHBACK_PERCENT,
+    QUEST_COMBO_REWARD_UAH,
+    QUEST_DRINKS_REWARD_UAH,
+    QUEST_VISITS_REWARD_UAH,
+    QUEST_WINDOW_DAYS,
+    REFERRAL_BONUS_UAH,
+    WELCOME_BONUS_UAH,
+)
 from database_functions.db import get_connection
 
 conn = get_connection()
 cursor = conn.cursor()
+
+REWARD_SETTING_KEYS = (
+    "welcome_bonus_uah",
+    "birthday_bonus_uah",
+    "annual_birthday_bonus_uah",
+    "referral_bonus_uah",
+    "quest_visits_reward_uah",
+    "quest_combo_reward_uah",
+    "quest_drinks_reward_uah",
+    "ach_days_5_reward_uah",
+    "ach_days_15_reward_uah",
+    "ach_days_30_reward_uah",
+)
 
 
 def _defaults() -> dict[str, str]:
@@ -13,7 +39,15 @@ def _defaults() -> dict[str, str]:
         "welcome_bonus_uah": str(WELCOME_BONUS_UAH),
         "cashback_percent": str(CASHBACK_PERCENT),
         "birthday_bonus_uah": str(BIRTHDAY_BONUS_UAH),
+        "annual_birthday_bonus_uah": str(ANNUAL_BIRTHDAY_BONUS_UAH),
         "referral_bonus_uah": str(REFERRAL_BONUS_UAH),
+        "quest_visits_reward_uah": str(QUEST_VISITS_REWARD_UAH),
+        "quest_combo_reward_uah": str(QUEST_COMBO_REWARD_UAH),
+        "quest_drinks_reward_uah": str(QUEST_DRINKS_REWARD_UAH),
+        "ach_days_5_reward_uah": str(ACH_DAYS_5_REWARD_UAH),
+        "ach_days_15_reward_uah": str(ACH_DAYS_15_REWARD_UAH),
+        "ach_days_30_reward_uah": str(ACH_DAYS_30_REWARD_UAH),
+        "quest_window_days": str(QUEST_WINDOW_DAYS),
     }
 
 
@@ -109,6 +143,71 @@ def get_referral_bonus_uah() -> float:
         return float(get_setting("referral_bonus_uah", str(REFERRAL_BONUS_UAH)))
     except ValueError:
         return float(REFERRAL_BONUS_UAH)
+
+
+def _float_setting(key: str, fallback: float) -> float:
+    try:
+        return float(get_setting(key, str(fallback)))
+    except ValueError:
+        return float(fallback)
+
+
+def get_annual_birthday_bonus_uah() -> float:
+    return _float_setting("annual_birthday_bonus_uah", ANNUAL_BIRTHDAY_BONUS_UAH)
+
+
+def get_quest_visits_reward_uah() -> float:
+    return _float_setting("quest_visits_reward_uah", QUEST_VISITS_REWARD_UAH)
+
+
+def get_quest_combo_reward_uah() -> float:
+    return _float_setting("quest_combo_reward_uah", QUEST_COMBO_REWARD_UAH)
+
+
+def get_quest_drinks_reward_uah() -> float:
+    return _float_setting("quest_drinks_reward_uah", QUEST_DRINKS_REWARD_UAH)
+
+
+def get_ach_days_5_reward_uah() -> float:
+    return _float_setting("ach_days_5_reward_uah", ACH_DAYS_5_REWARD_UAH)
+
+
+def get_ach_days_15_reward_uah() -> float:
+    return _float_setting("ach_days_15_reward_uah", ACH_DAYS_15_REWARD_UAH)
+
+
+def get_ach_days_30_reward_uah() -> float:
+    return _float_setting("ach_days_30_reward_uah", ACH_DAYS_30_REWARD_UAH)
+
+
+def get_quest_window_days() -> int:
+    try:
+        return max(1, int(float(get_setting("quest_window_days", str(QUEST_WINDOW_DAYS)))))
+    except ValueError:
+        return int(QUEST_WINDOW_DAYS)
+
+
+def set_reward_uah(key: str, amount: float) -> None:
+    if key not in REWARD_SETTING_KEYS and key != "cashback_percent":
+        raise ValueError(f"unknown reward key: {key}")
+    set_setting(key, f"{float(amount):g}")
+
+
+def rewards_snapshot() -> dict[str, float]:
+    return {
+        "welcome_bonus_uah": get_welcome_bonus_uah(),
+        "birthday_bonus_uah": get_birthday_bonus_uah(),
+        "annual_birthday_bonus_uah": get_annual_birthday_bonus_uah(),
+        "referral_bonus_uah": get_referral_bonus_uah(),
+        "quest_visits_reward_uah": get_quest_visits_reward_uah(),
+        "quest_combo_reward_uah": get_quest_combo_reward_uah(),
+        "quest_drinks_reward_uah": get_quest_drinks_reward_uah(),
+        "ach_days_5_reward_uah": get_ach_days_5_reward_uah(),
+        "ach_days_15_reward_uah": get_ach_days_15_reward_uah(),
+        "ach_days_30_reward_uah": get_ach_days_30_reward_uah(),
+        "quest_window_days": float(get_quest_window_days()),
+        "cashback_percent": get_cashback_percent(),
+    }
 
 
 def is_transaction_processed(transaction_id: str | int) -> bool:

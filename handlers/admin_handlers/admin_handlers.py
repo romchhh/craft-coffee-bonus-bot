@@ -12,10 +12,12 @@ from keyboards.admin_keyboards import (
 from Content.texts import get_greeting_message
 from utils.admin_functions import generate_database_export, format_statistics_message
 from database_functions.settings_db import (
-    get_welcome_bonus_uah,
+    REWARD_SETTING_KEYS,
     get_cashback_percent,
-    set_welcome_bonus_uah,
+    rewards_snapshot,
     set_cashback_percent,
+    set_reward_uah,
+    set_welcome_bonus_uah,
 )
 from states.admin_states import LoyaltySettings
 from datetime import datetime
@@ -24,15 +26,39 @@ import os
 
 router = Router()
 
+_REWARD_LABELS = {
+    "welcome_bonus_uah": "Вітальний бонус",
+    "birthday_bonus_uah": "Бонус за дату народження",
+    "annual_birthday_bonus_uah": "Щорічний подарунок на ДН",
+    "referral_bonus_uah": "Реферал (за друга)",
+    "quest_visits_reward_uah": "Квест: 3 візити",
+    "quest_combo_reward_uah": "Квест: напій + їжа",
+    "quest_drinks_reward_uah": "Квест: 2 різні напої",
+    "ach_days_5_reward_uah": "Досягнення: 5 днів",
+    "ach_days_15_reward_uah": "Досягнення: 15 днів",
+    "ach_days_30_reward_uah": "Досягнення: 30 днів",
+}
+
 
 def _loyalty_text() -> str:
-    welcome = get_welcome_bonus_uah()
-    cashback = get_cashback_percent()
+    s = rewards_snapshot()
     return (
         "🎁 <b>Налаштування лояльності</b>\n\n"
-        f"☕ Вітальний бонус: <b>{welcome:g} грн</b>\n"
-        f"📈 Кешбек з покупки: <b>{cashback:g}%</b>\n\n"
-        "Кешбек нараховується автоматично при закритті чека з клієнтом у Poster."
+        f"☕ Вітальний бонус: <b>{s['welcome_bonus_uah']:g} грн</b>\n"
+        f"🎂 За дату народження: <b>{s['birthday_bonus_uah']:g} грн</b>\n"
+        f"🎁 Щорічно на ДН: <b>{s['annual_birthday_bonus_uah']:g} грн</b>\n"
+        f"👥 Реферал: <b>{s['referral_bonus_uah']:g} грн</b>\n"
+        f"📈 Кешбек (базовий / рівні): <b>{s['cashback_percent']:g}%</b>\n\n"
+        "<b>Квести</b>\n"
+        f"• 3 візити: <b>{s['quest_visits_reward_uah']:g} грн</b>\n"
+        f"• Напій + їжа: <b>{s['quest_combo_reward_uah']:g} грн</b>\n"
+        f"• 2 різні напої: <b>{s['quest_drinks_reward_uah']:g} грн</b>\n\n"
+        "<b>Досягнення (дні)</b>\n"
+        f"• 5 днів: <b>{s['ach_days_5_reward_uah']:g} грн</b>\n"
+        f"• 15 днів: <b>{s['ach_days_15_reward_uah']:g} грн</b>\n"
+        f"• 30 днів: <b>{s['ach_days_30_reward_uah']:g} грн</b>\n\n"
+        f"Вікно квестів: <b>{int(s['quest_window_days'])} днів</b> від реєстрації.\n"
+        "Кешбек і прогрес квестів — при закритті чека в Poster."
     )
 
 
@@ -78,12 +104,20 @@ async def loyalty_refresh(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(IsAdmin(), F.data == "loyalty_edit_welcome")
-async def loyalty_edit_welcome(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(LoyaltySettings.welcome_bonus)
+@router.callback_query(IsAdmin(), F.data.startswith("loyalty_edit:"))
+async def loyalty_edit_reward(callback: types.CallbackQuery, state: FSMContext):
+    key = (callback.data or "").split(":", 1)[-1]
+    if key not in REWARD_SETTING_KEYS:
+        await callback.answer("Невідоме поле", show_alert=True)
+        return
+    snap = rewards_snapshot()
+    label = _REWARD_LABELS.get(key, key)
+    await state.set_state(LoyaltySettings.edit_reward)
+    await state.update_data(reward_key=key)
     await callback.message.answer(
-        f"Введи новий вітальний бонус у гривнях (зараз {get_welcome_bonus_uah():g}).\n"
-        "Наприклад: <code>50</code>",
+        f"Введи нову суму для <b>{label}</b> у гривнях "
+        f"(зараз <b>{snap.get(key, 0):g}</b>).\n"
+        "Наприклад: <code>15</code>",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -100,8 +134,14 @@ async def loyalty_edit_cashback(callback: types.CallbackQuery, state: FSMContext
     await callback.answer()
 
 
-@router.message(IsAdmin(), LoyaltySettings.welcome_bonus)
-async def loyalty_save_welcome(message: types.Message, state: FSMContext):
+@router.message(IsAdmin(), LoyaltySettings.edit_reward)
+async def loyalty_save_reward(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    key = data.get("reward_key")
+    if key not in REWARD_SETTING_KEYS:
+        await state.clear()
+        await message.answer("Сесію скинуто. Відкрий «🎁 Лояльність» знову.")
+        return
     raw = (message.text or "").replace(",", ".").strip()
     try:
         value = float(raw)
@@ -110,10 +150,14 @@ async def loyalty_save_welcome(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Введи число від 0 до 10000.")
         return
-    set_welcome_bonus_uah(value)
+    if key == "welcome_bonus_uah":
+        set_welcome_bonus_uah(value)
+    else:
+        set_reward_uah(key, value)
+    label = _REWARD_LABELS.get(key, key)
     await state.clear()
     await message.answer(
-        f"✅ Вітальний бонус збережено: <b>{value:g} грн</b>",
+        f"✅ {label}: <b>{value:g} грн</b>",
         parse_mode="HTML",
         reply_markup=admin_keyboard(),
     )

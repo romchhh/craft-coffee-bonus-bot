@@ -27,7 +27,8 @@ def create_table():
             welcome_bonus_given INTEGER DEFAULT 0,
             referred_by_user_id INTEGER,
             birthday_bonus_given INTEGER DEFAULT 0,
-            referral_bonus_paid INTEGER DEFAULT 0
+            referral_bonus_paid INTEGER DEFAULT 0,
+            annual_birthday_year INTEGER
         )
         """
     )
@@ -48,6 +49,7 @@ def _migrate():
         "referred_by_user_id": "INTEGER",
         "birthday_bonus_given": "INTEGER DEFAULT 0",
         "referral_bonus_paid": "INTEGER DEFAULT 0",
+        "annual_birthday_year": "INTEGER",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -159,6 +161,14 @@ def mark_referral_bonus_paid(user_id: int | str) -> None:
     cursor.execute(
         "UPDATE users SET referral_bonus_paid = 1, last_activity = ? WHERE user_id = ?",
         (kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
+def mark_annual_birthday_year(user_id: int | str, year: int) -> None:
+    cursor.execute(
+        "UPDATE users SET annual_birthday_year = ?, last_activity = ? WHERE user_id = ?",
+        (int(year), kyiv_now_str(), user_id),
     )
     conn.commit()
 

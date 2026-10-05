@@ -228,20 +228,17 @@ async def _finish_registration(
         welcome_bonus_given=bonus_given,
     )
     from database_functions.charge_db import init_loyalty_for_user
-    from services.quest_bonuses import process_referral_on_registration
+    from services.quest_bonuses import bind_referrer_on_registration
+    from services.quests import build_quests_ui
 
     init_loyalty_for_user(message.from_user.id)
     referred_by = data.get("referred_by")
     if referred_by:
-        referral_paid = process_referral_on_registration(
-            message.from_user.id, int(referred_by)
-        )
-        if referral_paid > 0:
-            await _notify_referrer_referral_bonus(
-                referrer_user_id=int(referred_by),
-                friend_name=data["display_name"],
-                amount=referral_paid,
-            )
+        bind_referrer_on_registration(message.from_user.id, int(referred_by))
+    try:
+        build_quests_ui(message.from_user.id)
+    except Exception:
+        log.exception("init quests for %s", message.from_user.id)
 
     bonus_text = get_welcome_bonus_uah() if bonus_given else 0
     await _send_registration_success(

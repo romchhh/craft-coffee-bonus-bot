@@ -19,8 +19,17 @@ def admin_keyboard() -> ReplyKeyboardMarkup:
 def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Вітальний бонус", callback_data="loyalty_edit_welcome")],
-            [InlineKeyboardButton(text="✏️ Відсоток кешбеку", callback_data="loyalty_edit_cashback")],
+            [InlineKeyboardButton(text="✏️ Вітальний бонус", callback_data="loyalty_edit:welcome_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Бонус за ДН (профіль)", callback_data="loyalty_edit:birthday_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Щорічний подарунок ДН", callback_data="loyalty_edit:annual_birthday_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Реферал (за друга)", callback_data="loyalty_edit:referral_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Кешбек %", callback_data="loyalty_edit_cashback")],
+            [InlineKeyboardButton(text="✏️ Квест: 3 візити", callback_data="loyalty_edit:quest_visits_reward_uah")],
+            [InlineKeyboardButton(text="✏️ Квест: напій+їжа", callback_data="loyalty_edit:quest_combo_reward_uah")],
+            [InlineKeyboardButton(text="✏️ Квест: 2 напої", callback_data="loyalty_edit:quest_drinks_reward_uah")],
+            [InlineKeyboardButton(text="✏️ Досягнення 5 днів", callback_data="loyalty_edit:ach_days_5_reward_uah")],
+            [InlineKeyboardButton(text="✏️ Досягнення 15 днів", callback_data="loyalty_edit:ach_days_15_reward_uah")],
+            [InlineKeyboardButton(text="✏️ Досягнення 30 днів", callback_data="loyalty_edit:ach_days_30_reward_uah")],
             [InlineKeyboardButton(text="🔄 Оновити", callback_data="loyalty_refresh")],
         ]
     )

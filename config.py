@@ -29,8 +29,17 @@ POSTER_CLIENT_GROUP_ID = 2
 # Суми в чеках і меню Poster (копійки: 100 = 1 грн). Не для поля bonus клієнта.
 POSTER_MONEY_MULT = int(getenv("POSTER_BONUS_MULT", "100"))
 WELCOME_BONUS_UAH = float(getenv("WELCOME_BONUS_UAH", "50"))
-BIRTHDAY_BONUS_UAH = float(getenv("BIRTHDAY_BONUS_UAH", "10"))
+BIRTHDAY_BONUS_UAH = float(getenv("BIRTHDAY_BONUS_UAH", "20"))
+ANNUAL_BIRTHDAY_BONUS_UAH = float(getenv("ANNUAL_BIRTHDAY_BONUS_UAH", "50"))
 REFERRAL_BONUS_UAH = float(getenv("REFERRAL_BONUS_UAH", "10"))
+# Винагороди квестів / досягнень (MVP, редаговані в адмінці)
+QUEST_VISITS_REWARD_UAH = float(getenv("QUEST_VISITS_REWARD_UAH", "15"))
+QUEST_COMBO_REWARD_UAH = float(getenv("QUEST_COMBO_REWARD_UAH", "15"))
+QUEST_DRINKS_REWARD_UAH = float(getenv("QUEST_DRINKS_REWARD_UAH", "15"))
+ACH_DAYS_5_REWARD_UAH = float(getenv("ACH_DAYS_5_REWARD_UAH", "10"))
+ACH_DAYS_15_REWARD_UAH = float(getenv("ACH_DAYS_15_REWARD_UAH", "20"))
+ACH_DAYS_30_REWARD_UAH = float(getenv("ACH_DAYS_30_REWARD_UAH", "30"))
+QUEST_WINDOW_DAYS = int(getenv("QUEST_WINDOW_DAYS", "14"))
 
 WEBAPP_URL = (getenv("WEBAPP_URL") or "").rstrip("/")
 WEBAPP_HOST = getenv("WEBAPP_HOST", "0.0.0.0")
