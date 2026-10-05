@@ -31,15 +31,25 @@ MIN_VISIT_GAP_HOURS = 2
 DAYS_STEPS = (5, 15, 30)
 
 _DRINK_RE = re.compile(
-    r"кав|кофе|coffee|еспрес|латте|капуч|американо|раф|чай|tea|лимонад|смузі|"
-    r"фреш|сік|какао|матча|напій|флет|мокко|глясе|айс",
+    r"кав|кофе|coffee|еспрес|латте|лате|капуч|американо|раф|чай|tea|лимонад|смузі|"
+    r"фреш|сік|какао|матча|напій|флет|мокко|мока|глясе|айс|мілкшейк|бабл|пунш|"
+    r"кола|лимонад",
     re.I,
 )
 _FOOD_RE = re.compile(
-    r"їжа|їст|сендвіч|бургер|торт|десерт|тістеч|печив|круасан|снідан|"
-    r"омлет|тост|салат|суп|пиріг|сирник|вафл|пончик|ролл|запікан|food|snack",
+    r"їжа|їст|сендвіч|паніні|бургер|торт|десерт|тістеч|печив|круасан|снідан|"
+    r"омлет|тост|салат|суп|пиріг|сирник|вафл|пончик|ролл|запікан|солодощ|"
+    r"морозив|батончик|шоколад|жуйк|food|snack",
     re.I,
 )
+# Категорії Poster важливіші за назву позиції (добавки/атракціони — other)
+_CAT_DRINK_RE = re.compile(
+    r"напої|кав|лимонад|смузі|мілкшейк|какао|матча|ча[їи]|раф|глясе|еспресо|"
+    r"американо|капуч|лат|флет|мока|бабл|пунш|холодна\s*кав|зимов(і|е)\s*напо",
+    re.I,
+)
+_CAT_FOOD_RE = re.compile(r"їжа|солодощ|морозив|снідан", re.I)
+_CAT_OTHER_RE = re.compile(r"добавк|молоко|атракціон|бариста", re.I)
 
 
 def _cycle_id_for_user(user: dict) -> str:
@@ -106,25 +116,19 @@ def _ensure_cycle_quests(user_id: int, user: dict) -> str:
 
 def classify_product(product: dict | None, category: dict | None = None) -> str:
     """Повертає drink | food | other."""
-    name = " ".join(
-        filter(
-            None,
-            [
-                (product or {}).get("product_name"),
-                (category or {}).get("category_name"),
-                (category or {}).get("name"),
-            ],
-        )
-    )
-    if _DRINK_RE.search(name or ""):
+    cat = ((category or {}).get("category_name") or (category or {}).get("name") or "").strip()
+    if cat and _CAT_OTHER_RE.search(cat):
+        return "other"
+    if cat and _CAT_DRINK_RE.search(cat):
         return "drink"
-    if _FOOD_RE.search(name or ""):
+    if cat and _CAT_FOOD_RE.search(cat):
         return "food"
-    # fallback: багато категорій Poster «Напої» / «Кава»
-    cat = (category or {}).get("category_name") or (category or {}).get("name") or ""
-    if _DRINK_RE.search(cat):
+
+    name = ((product or {}).get("product_name") or "").strip()
+    blob = f"{name} {cat}".strip()
+    if _DRINK_RE.search(blob):
         return "drink"
-    if _FOOD_RE.search(cat):
+    if _FOOD_RE.search(blob):
         return "food"
     return "other"
 
