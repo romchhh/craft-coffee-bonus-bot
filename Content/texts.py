@@ -19,7 +19,7 @@ def get_registration_welcome(name: str | None = None) -> str:
 
 
 def get_greeting_message(name: str | None = None) -> str:
-    """Загальне вітання (наприклад, адмін / parcel)."""
+    """Generic greeting (e.g. admin / parcel)."""
     return get_registration_welcome(name)
 
 

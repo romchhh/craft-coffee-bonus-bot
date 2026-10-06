@@ -1,15 +1,15 @@
-"""Що показувати в мініапі меню (не все з Poster)."""
+"""What to show in the mini-app menu (not everything from Poster)."""
 from __future__ import annotations
 
 import re
 
-# Службові / не для гостей
+# Internal / not for guests
 EXCLUDED_CATEGORY_IDS = frozenset(
     {
-        "42",  # Для бариста
-        "57",  # Атракціони
-        "47",  # Какао_Р
-        "48",  # Кава_Р
+        "42",  # For baristas
+        "57",  # Attractions
+        "47",  # Cocoa_R
+        "48",  # Coffee_R
     }
 )
 

@@ -23,7 +23,7 @@ class IsSuperAdmin(Filter):
 
 
 class NotRegistered(Filter):
-    """Користувач без оформленої картки в боті."""
+    """User without a registered card in the bot."""
 
     async def __call__(self, message: Message) -> bool:
         if not message.from_user:

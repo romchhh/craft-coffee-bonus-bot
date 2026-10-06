@@ -1,4 +1,4 @@
-"""Бонуси: день народження, щорічний подарунок; реферал — у services.referrals."""
+"""Birthday bonuses (one-time profile and annual)."""
 from __future__ import annotations
 
 import logging
@@ -15,28 +15,12 @@ from database_functions.settings_db import (
 )
 from services import poster
 from services.poster_client_cache import invalidate_client
-from services.referrals import (
-    bind_referrer_on_registration,
-    process_referral_on_first_purchase,
-    referral_link_for,
-)
 from utils.kyiv_time import now_kyiv
 
 log = logging.getLogger(__name__)
 
-__all__ = [
-    "referral_link_for",
-    "grant_birthday_bonus",
-    "bind_referrer_on_registration",
-    "process_referral_on_first_purchase",
-    "process_referral_on_registration",
-    "maybe_grant_annual_birthday",
-    "quests_payload",
-]
-
 
 def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
-    """Одноразовий бонус за внесення дати народження (профіль +20)."""
     user = get_user(user_id)
     if not user or user.get("birthday_bonus_given"):
         return 0.0
@@ -54,13 +38,7 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     return amount
 
 
-def process_referral_on_registration(new_user_id: int, referred_by: int | None) -> float:
-    bind_referrer_on_registration(new_user_id, referred_by)
-    return 0.0
-
-
 def maybe_grant_annual_birthday(user_id: int) -> float:
-    """Щорічний подарунок у день народження (Київ)."""
     user = get_user(user_id)
     if not user or not user.get("registered"):
         return 0.0
@@ -71,6 +49,7 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
         bd = datetime.strptime(str(bday)[:10], "%Y-%m-%d")
     except ValueError:
         return 0.0
+
     now = now_kyiv()
     month, day = bd.month, bd.day
     if month == 2 and day == 29:
@@ -82,6 +61,7 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
         return 0.0
     if int(user.get("annual_birthday_year") or 0) == now.year:
         return 0.0
+
     amount = get_annual_birthday_bonus_uah()
     cid = user.get("poster_client_id")
     if amount <= 0 or not cid:

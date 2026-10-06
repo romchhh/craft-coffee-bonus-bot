@@ -21,7 +21,7 @@ API = "https://joinposter.com/api"
 POSTER_CDN = "https://joinposter.com"
 TIMEOUT = 25
 
-# У різних акаунтах Poster закритий чек може бути status 2 або 4
+# Closed receipt status may be 2 or 4 depending on Poster account
 CLOSED_TRANSACTION_STATUSES = frozenset({"2", "4"})
 
 
@@ -73,12 +73,12 @@ def phone_digits(raw: str) -> str:
 
 
 def to_minor(amount_uah: float) -> int:
-    """Чеки, меню — копійки."""
+    """Receipts/menu — minor units."""
     return int(round(float(amount_uah) * POSTER_MONEY_MULT))
 
 
 def from_minor(amount) -> float:
-    """Чеки, меню та баланс bonus з відповіді API — з копійок у грн."""
+    """Receipts, menu and bonus balance from API — minor units to UAH."""
     try:
         return float(amount or 0) / POSTER_MONEY_MULT
     except (TypeError, ValueError):
@@ -86,7 +86,7 @@ def from_minor(amount) -> float:
 
 
 def to_bonus_write(amount_uah: float) -> int:
-    """Поле bonus / changeClientBonus.count — сума в гривнях (без ×100)."""
+    """bonus / changeClientBonus.count — amount in UAH (no ×100)."""
     return int(round(float(amount_uah)))
 
 
@@ -95,7 +95,7 @@ def from_bonus_write(amount) -> float:
 
 
 def ean13_from_seq(seq: int) -> str:
-    """Унікальний внутрішній EAN-13 (префікс 2)."""
+    """Unique internal EAN-13 (prefix 2)."""
     base = "2" + f"{seq % 10**11:011d}"
     total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(base))
     return base + str((10 - total % 10) % 10)
@@ -131,7 +131,7 @@ def resolve_client_group_id_by_name(name: str) -> int | None:
 
 
 def init_client_group() -> int:
-    """Визначити групу клієнтів (Бонуси2) при старті бота."""
+    """Resolve client group (Bonusi2) on bot startup."""
     global _active_client_group_id
     resolved = resolve_client_group_id_by_name(POSTER_CLIENT_GROUP_NAME)
     if resolved is not None:
@@ -162,7 +162,7 @@ def assign_client_group(client_id: int | str) -> None:
 
 
 def migrate_registered_bot_clients_to_group() -> tuple[int, int]:
-    """Перевести всіх клієнтів бота в цільову групу. Повертає (ok, failed)."""
+    """Move all bot clients into the target group. Returns (ok, failed)."""
     from database_functions.client_db import registered_poster_client_ids
 
     gid = client_group_id()
@@ -236,7 +236,7 @@ def get_client(client_id: int | str) -> dict | None:
 
 
 def get_client_bonus_uah(client_id: int | str) -> float:
-    """Живий баланс бонусів клієнта з Poster (у гривнях)."""
+    """Live client bonus balance from Poster (UAH)."""
     client = get_client(client_id) or {}
     return from_minor(client.get("bonus"))
 
@@ -257,7 +257,7 @@ def find_client_by_phone(phone: str) -> dict | None:
 
 
 def find_clients_by_phone_suffix(suffix: str) -> list[dict]:
-    """Пошук клієнтів за останніми цифрами телефону (4–12 цифр), як на Новій Пошті."""
+    """Find clients by last phone digits (4–12), Nova Poshta style."""
     digits = re.sub(r"\D", "", suffix or "")
     if len(digits) < 4:
         return []
@@ -306,7 +306,7 @@ def set_bonus(client_id: int | str, amount_uah: float) -> Any:
 
 
 def change_client_bonus(client_id: int | str, delta_uah: float) -> Any:
-    """Нарахувати (додатнє) або списати (від’ємне) бонуси. Повертає новий баланс."""
+    """Credit (positive) or debit (negative) bonuses. Returns new balance."""
     return call(
         "clients.changeClientBonus",
         data={
@@ -326,7 +326,7 @@ def close_transaction(
     spot_tablet_id: int = 1,
     print_fiscal: int = 0,
 ) -> dict:
-    """Закрити чек (суми payed_* у копійках Poster)."""
+    """Close a receipt (payed_* amounts in Poster minor units)."""
     payload: dict[str, Any] = {
         "spot_id": int(spot_id),
         "spot_tablet_id": int(spot_tablet_id),
@@ -356,7 +356,7 @@ def get_transaction(transaction_id: int | str) -> dict | None:
 
 
 def get_closed_transactions(days: int = 2, spot_id: int | None = None) -> list[dict]:
-    """Усі закриті чеки за останні `days` днів."""
+    """All closed receipts for the last `days` days."""
     from datetime import datetime, timedelta
 
     date_to = datetime.now()
@@ -380,7 +380,7 @@ def transaction_id_from_row(tx: dict) -> str | None:
 
 
 def get_transactions_for_client(client_id: int | str, days: int = 90) -> list[dict]:
-    """Закриті чеки клієнта за останні `days` днів."""
+    """Closed receipts for a client over the last `days` days."""
     cid = str(client_id)
     return [t for t in get_closed_transactions(days=days) if str(t.get("client_id") or "") == cid]
 

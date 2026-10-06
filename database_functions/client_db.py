@@ -139,7 +139,6 @@ def save_registration(
 
 
 def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:
-    """Низькорівневий запис (без sticky-логіки)."""
     cursor.execute(
         "UPDATE users SET referred_by_user_id = ?, last_activity = ? WHERE user_id = ?",
         (
@@ -156,38 +155,29 @@ def set_referred_by_sticky(
     referrer_user_id: int,
     *,
     ttl_days: int = 30,
-    force_keep_existing: bool = False,
 ) -> bool:
-    """
-    Перший запрошувач закріплюється.
-    Якщо незавершене запрошення старше ttl_days і юзер ще не зареєстрований — можна замінити.
-    Після реєстрації зміна заборонена (force_keep_existing=True лише зберігає існуючого).
-    """
+    """First referrer is sticky until ttl_days elapses without registration."""
     from datetime import datetime, timedelta
 
     from utils.kyiv_time import KYIV_TZ, now_kyiv
 
     user = get_user(user_id)
     if not user:
-        # ще немає рядка — створить /start; тут лише no-op
         return False
-    if user.get("registered") and user.get("referred_by_user_id"):
-        return int(user["referred_by_user_id"]) == int(referrer_user_id)
 
     existing = user.get("referred_by_user_id")
-    click_at = user.get("referral_click_at")
-    now = now_kyiv()
-    if existing and force_keep_existing:
-        return True
-    if existing:
+    if existing and user.get("registered"):
+        return int(existing) == int(referrer_user_id)
+
+    if existing and not user.get("registered"):
+        click_at = user.get("referral_click_at")
         keep = True
-        if click_at and not user.get("registered"):
+        if click_at:
             try:
                 started = datetime.strptime(str(click_at)[:19], "%Y-%m-%d %H:%M:%S").replace(
                     tzinfo=KYIV_TZ
                 )
-                if now - started > timedelta(days=int(ttl_days)):
-                    keep = False
+                keep = now_kyiv() - started <= timedelta(days=int(ttl_days))
             except ValueError:
                 keep = True
         if keep:
@@ -198,18 +188,12 @@ def set_referred_by_sticky(
         """
         UPDATE users SET
             referred_by_user_id = ?,
-            referral_click_at = COALESCE(referral_click_at, ?),
+            referral_click_at = ?,
             last_activity = ?
         WHERE user_id = ?
         """,
         (int(referrer_user_id), now_s, now_s, user_id),
     )
-    # якщо замінюємо прострочене — оновити click_at
-    if existing and not user.get("registered"):
-        cursor.execute(
-            "UPDATE users SET referral_click_at = ?, last_activity = ? WHERE user_id = ?",
-            (now_s, now_s, user_id),
-        )
     conn.commit()
     return True
 
@@ -225,6 +209,14 @@ def mark_birthday_bonus_given(user_id: int | str) -> None:
 def mark_referral_bonus_paid(user_id: int | str) -> None:
     cursor.execute(
         "UPDATE users SET referral_bonus_paid = 1, last_activity = ? WHERE user_id = ?",
+        (kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
+def clear_referral_bonus_paid(user_id: int | str) -> None:
+    cursor.execute(
+        "UPDATE users SET referral_bonus_paid = 0, last_activity = ? WHERE user_id = ?",
         (kyiv_now_str(), user_id),
     )
     conn.commit()
@@ -283,7 +275,7 @@ def get_user_by_poster_client_id(poster_client_id: int | str) -> dict | None:
 
 
 def next_card_seq() -> int:
-    """Порядковий номер для EAN-13 на базі max(id) + telegram id хвоста."""
+    """Sequential number for EAN-13 based on max(id) + telegram id tail."""
     row = cursor.execute("SELECT COALESCE(MAX(id), 0) FROM users").fetchone()
     base = int(row[0]) + 1
     return 900000 + base

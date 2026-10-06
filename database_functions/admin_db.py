@@ -28,7 +28,7 @@ def get_all_users_data():
 
 
 def get_all_links_data():
-    # Отримуємо дані без поля link_count (статистика)
+    # Fetch without link_count (stats)
     cursor.execute('SELECT id, link_name, link_url FROM links')
     links_data = cursor.fetchall()
     links_columns = [description[0] for description in cursor.description]
@@ -136,23 +136,23 @@ def add_admin(user_id, username, added_by):
     try:
         current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Спочатку знаходимо user_id якщо передано username
+        # Resolve user_id if username was provided
         if not user_id and username:
             found_user_id = get_user_id_by_username(username)
             if found_user_id:
                 user_id = found_user_id
             else:
-                return "not_found"  # Користувач не знайдений в базі
+                return "not_found"  # User not found in DB
         
-        # Перевіряємо чи користувач існує в базі даних
+        # Check whether the user exists in the database
         if user_id:
             cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
             if not cursor.fetchone():
-                return "not_found"  # Користувач не знайдений в базі
+                return "not_found"  # User not found in DB
         else:
             return "not_found"
         
-        # Перевіряємо чи вже є адміністратором
+        # Check whether already an admin
         existing_admin = None
         if user_id:
             existing_admin = get_admin_by_id(user_id)
@@ -160,7 +160,7 @@ def add_admin(user_id, username, added_by):
             existing_admin = get_admin_by_id(get_user_id_by_username(username))
 
         if existing_admin:
-            return "already_admin"  # Вже є адміністратором
+            return "already_admin"  # Already an admin
 
         if not username and user_id:
             cursor.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,))

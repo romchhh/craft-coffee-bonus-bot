@@ -1,4 +1,4 @@
-"""Перевірка Telegram WebApp initData (як у aiogram + fallback для signature)."""
+"""Validate Telegram WebApp initData (aiogram-style + signature fallback)."""
 from __future__ import annotations
 
 import hashlib
@@ -46,8 +46,8 @@ def _validate_hash(init_data: str, bot_token: str, exclude_signature: bool) -> d
 
 def parse_telegram_user(init_data: str, bot_token: str, max_age_sec: int = 0) -> dict | None:
     """
-    Повертає dict користувача Telegram (мінімум id) або None.
-    max_age_sec=0 — не перевіряти застарілість auth_date.
+    Return Telegram user dict (at least id) or None.
+    max_age_sec=0 — do not check auth_date freshness.
     """
     if not init_data or not bot_token:
         return None

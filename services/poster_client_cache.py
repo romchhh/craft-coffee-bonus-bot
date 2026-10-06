@@ -1,4 +1,4 @@
-"""Короткий кеш get_client для /api/me (не блокувати event loop на кожен запит)."""
+"""Short get_client cache for /api/me (avoid blocking the event loop)."""
 from __future__ import annotations
 
 import time

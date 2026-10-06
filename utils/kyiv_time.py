@@ -1,4 +1,4 @@
-"""Усі дати/час для клієнтів — Europe/Kyiv (UTC+2 / +3)."""
+"""All client-facing dates/times use Europe/Kyiv (UTC+2 / +3)."""
 from __future__ import annotations
 
 from datetime import datetime

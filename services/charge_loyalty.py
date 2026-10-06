@@ -1,4 +1,4 @@
-"""Заряд, рівні кешбеку 1–10%, простій і згорання бонусів."""
+"""Charge, cashback tiers 1–10%, idle decay and bonus burn."""
 from __future__ import annotations
 
 import logging
@@ -120,7 +120,7 @@ def on_purchase_closed(
     payed_sum_uah: float,
     closed_at: datetime | None = None,
 ) -> float:
-    """Нарахувати Заряд за покупку. Повертає доданий Заряд."""
+    """Credit Charge for a purchase. Returns Charge added."""
     init_loyalty_for_user(telegram_user_id)
     row = get_loyalty_row(telegram_user_id)
     if not row:

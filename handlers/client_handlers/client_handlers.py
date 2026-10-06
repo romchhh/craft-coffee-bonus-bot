@@ -25,7 +25,6 @@ from Content.texts import (
     get_ask_name,
     get_ask_phone,
     get_registration_done,
-    get_referral_bonus_notification,
     get_already_registered,
     get_about_text,
     get_faq_text,
@@ -90,12 +89,9 @@ async def start_command(message: types.Message, state: FSMContext):
         from services.referrals import remember_referral_click
 
         remember_referral_click(user.id, referred_by)
-        # sticky: у FSM лише якщо в БД закріпився цей запрошувач
         db_u = get_user(user.id)
-        if db_u and db_u.get("referred_by_user_id"):
-            await state.update_data(referred_by=int(db_u["referred_by_user_id"]))
-        else:
-            await state.update_data(referred_by=referred_by)
+        sticky = (db_u or {}).get("referred_by_user_id") or referred_by
+        await state.update_data(referred_by=int(sticky))
 
     if is_registered(user.id):
         db_user = get_user(user.id)
@@ -260,27 +256,6 @@ async def _finish_registration(
     )
 
 
-async def _notify_referrer_referral_bonus(
-    *,
-    referrer_user_id: int,
-    friend_name: str,
-    amount: float,
-) -> None:
-    text = get_referral_bonus_notification(friend_name, amount)
-    inline = get_open_card_inline()
-    try:
-        await bot.send_message(
-            referrer_user_id,
-            text,
-            parse_mode="HTML",
-            reply_markup=inline,
-        )
-    except TelegramBadRequest as exc:
-        log.info("referral notify failed referrer=%s: %s", referrer_user_id, exc)
-    except Exception as exc:
-        log.warning("referral notify failed referrer=%s: %s", referrer_user_id, exc)
-
-
 async def _send_registration_success(
     message: types.Message,
     *,
@@ -340,7 +315,7 @@ async def _create_loyalty_card(
     phone: str,
     birthday: str | None,
 ) -> tuple[int, str, bool]:
-    """Повертає (poster_client_id, card_number, welcome_bonus_given)."""
+    """Return (poster_client_id, card_number, welcome_bonus_given)."""
     card_number = poster.ean13_from_seq(next_card_seq() * 1000 + (telegram_id % 1000))
     existing = poster.find_client_by_phone(phone)
 
@@ -366,7 +341,7 @@ async def _create_loyalty_card(
         except poster.PosterError:
             pass
 
-        # Вітальний бонус лише якщо баланс порожній / майже нуль
+        # Welcome bonus only if balance is empty / near zero
         balance = poster.from_minor(existing.get("bonus"))
         bonus_given = False
         if balance < 1:
@@ -452,7 +427,7 @@ async def support(message: types.Message):
 
 @router.message(F.web_app_data)
 async def webapp_data_outside_flow(message: types.Message):
-    """WebApp sendData поза реєстрацією — не залишати update без обробника."""
+    """WebApp sendData outside registration — avoid unhandled updates."""
     from database_functions.client_db import is_registered
 
     if not is_registered(message.from_user.id):
@@ -466,7 +441,7 @@ async def webapp_data_outside_flow(message: types.Message):
 
 @router.message(StateFilter(None), ~F.text.startswith("/"), NotRegistered(), ~IsAdmin())
 async def guest_without_card(message: types.Message):
-    """Користувач без картки пише щось поза реєстрацією (не перехоплює адмінку)."""
+    """Unregistered user messages outside registration (do not catch admin)."""
     if not message.from_user or not message.text:
         return
     await _ensure_user(message)
@@ -489,12 +464,12 @@ async def on_startup(router):
             log.exception("Poster client group sync on startup")
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
-    print(f"Bot: @{me.username} запущений!")
+    log.info("Bot @%s started", me.username)
     if WEBAPP_URL:
-        print(f"Mini App: {WEBAPP_URL}")
-        print(f"Poster webhook: {WEBAPP_URL}/webhook/poster")
+        log.info("Mini App: %s", WEBAPP_URL)
+        log.info("Poster webhook: %s/webhook/poster", WEBAPP_URL)
     else:
-        print("WEBAPP_URL не задано — кнопка Mini App і webhook URL вимкнені.")
+        log.warning("WEBAPP_URL is empty — Mini App button and webhook URL disabled")
 
 
 async def on_shutdown(router):
@@ -502,4 +477,4 @@ async def on_shutdown(router):
 
     await stop_loyalty_cron()
     me = await bot.get_me()
-    print(f"Bot: @{me.username} зупинений!")
+    log.info("Bot @%s stopped", me.username)

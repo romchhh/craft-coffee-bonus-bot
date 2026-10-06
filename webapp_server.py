@@ -1,4 +1,4 @@
-"""HTTP-сервер Mini App + JSON API для Craft Coffee."""
+"""Mini App HTTP server + JSON API for Craft Coffee."""
 from __future__ import annotations
 
 import asyncio
@@ -93,7 +93,7 @@ async def birthday_page(_request: web.Request) -> web.FileResponse:
 
 
 async def api_meta(_request: web.Request) -> web.Response:
-    """Публічні дані для мініапу (посилання на бота для реєстрації)."""
+    """Public mini-app meta (bot link for registration)."""
     username = (BOT_USERNAME or "").strip().lstrip("@")
     bot_url = f"https://t.me/{username}" if username else None
     from Content.locations import INSTAGRAM_URL
@@ -109,12 +109,12 @@ async def api_meta(_request: web.Request) -> web.Response:
 
 
 async def _fetch_telegram_avatar(user_id: int) -> Path | None:
-    """Завантажує аватар з Telegram Bot API у локальний кеш."""
+    """Download avatar from Telegram Bot API into local cache."""
     if not BOT_TOKEN:
         return None
     cached = list(AVATAR_CACHE.glob(f"{user_id}.*"))
     if cached:
-        # оновлювати раз на добу
+        # refresh once per day
         age = datetime.now().timestamp() - cached[0].stat().st_mtime
         if age < 86400:
             return cached[0]
@@ -130,7 +130,7 @@ async def _fetch_telegram_avatar(user_id: int) -> Path | None:
             photos = (((data or {}).get("result") or {}).get("photos") or [])
             if not photos:
                 return None
-            # найбільший розмір у першому наборі
+            # largest size in the first set
             best = max(photos[0], key=lambda p: p.get("file_size") or 0)
             file_id = best["file_id"]
 
@@ -154,7 +154,7 @@ async def _fetch_telegram_avatar(user_id: int) -> Path | None:
 
         ext = Path(file_path).suffix or ".jpg"
         out = AVATAR_CACHE / f"{user_id}{ext}"
-        # прибрати старі варіанти
+        # remove old variants
         for old in AVATAR_CACHE.glob(f"{user_id}.*"):
             if old != out:
                 old.unlink(missing_ok=True)
@@ -568,7 +568,7 @@ def _parse_wallet_token(token: str) -> int | None:
 
 
 async def api_wallet_link(request: web.Request) -> web.Response:
-    """Повертає короткоживуче посилання на .pkpass (для openLink у Telegram)."""
+    """Return a short-lived .pkpass URL (for Telegram openLink)."""
     tg_user = _auth_user(request)
     db_user = get_user(tg_user["id"])
     if not db_user or not db_user.get("registered"):
@@ -586,7 +586,7 @@ async def api_wallet_link(request: web.Request) -> web.Response:
     if not WEBAPP_URL:
         return web.json_response({"error": "WEBAPP_URL не задано"}, status=503)
 
-    exp = int(datetime.now().timestamp()) + 300  # 5 хв
+    exp = int(datetime.now().timestamp()) + 300  # 5 min
     token = _wallet_token(int(tg_user["id"]), exp)
     url = f"{WEBAPP_URL}/api/wallet/apple.pkpass?t={token}"
     return web.json_response({"url": url, "expires_in": 300})
@@ -635,9 +635,9 @@ async def api_wallet_pkpass(request: web.Request) -> web.Response:
 
 async def poster_webhook(request: web.Request) -> web.Response:
     """
-    Poster webhook. У кабінеті вкажи URL:
+    Poster webhook. Set this URL in the cabinet:
       {WEBAPP_URL}/webhook/poster
-    Увімкни сутності: transaction, client_payed_sum.
+    Enable entities: transaction, client_payed_sum.
     """
     try:
         payload = await request.json()
@@ -665,7 +665,7 @@ async def poster_webhook(request: web.Request) -> web.Response:
     action = payload.get("action")
     object_id = payload.get("object_id")
 
-    # Закриття чека: transaction changed/closed або client_payed_sum
+    # Receipt close: transaction changed/closed or client_payed_sum
     should_process = False
     transaction_id = None
 
@@ -673,7 +673,7 @@ async def poster_webhook(request: web.Request) -> web.Response:
         transaction_id = object_id
         should_process = True
     elif obj == "client_payed_sum":
-        # іноді в data є transaction_id
+        # sometimes transaction_id is in data
         data = payload.get("data") or {}
         if isinstance(data, dict):
             transaction_id = data.get("transaction_id") or data.get("order_id") or object_id
@@ -686,7 +686,7 @@ async def poster_webhook(request: web.Request) -> web.Response:
             from main import bot
             result = await process_closed_transaction(transaction_id, bot=bot)
             log.info("loyalty webhook tx=%s result=%s", transaction_id, result)
-            # Повернення / зміна чека, що вже кваліфікував реферал
+            # Refund / change of a receipt that already qualified a referral
             if result.get("status") == "skip" and result.get("reason") == "already_processed":
                 from services.referrals import review_transaction_for_referral
 

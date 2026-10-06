@@ -1,4 +1,4 @@
-"""Єдине з'єднання SQLite для всього проєкту (уникає database is locked)."""
+"""Shared SQLite connection for the project (avoids database is locked)."""
 from __future__ import annotations
 
 import sqlite3

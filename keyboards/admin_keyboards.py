@@ -199,7 +199,7 @@ def get_admin_list_keyboard(admins: list = None, is_super: bool = False) -> Inli
         
         display_name = f"👑 {display_username}" if is_superadmin else f"👤 {display_username}"
         
-        # Суперадмін бачить передачу прав та видалення для звичайних адмінів
+        # Superadmin can transfer rights and remove regular admins
         if not is_superadmin and is_super:
             keyboard.append([
                 InlineKeyboardButton(text=display_name, callback_data=f"admin_info_{user_id}"),

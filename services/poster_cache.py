@@ -1,4 +1,4 @@
-"""Файловий TTL-кеш відповідей Poster API."""
+"""File TTL cache for Poster API responses."""
 from __future__ import annotations
 
 import json
@@ -13,13 +13,13 @@ log = logging.getLogger(__name__)
 CACHE_DIR = Path("cache/poster")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_TTL = int(os.getenv("POSTER_CACHE_TTL", "900"))  # 15 хв
+DEFAULT_TTL = int(os.getenv("POSTER_CACHE_TTL", "900"))  # 15 min
 
 T = TypeVar("T")
 
 
 def get_cached(key: str, loader: Callable[[], T], ttl: int = DEFAULT_TTL) -> T:
-    """Повертає дані з кешу або викликає loader() і зберігає результат."""
+    """Return cached data or call loader() and store the result."""
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in key)
     path = CACHE_DIR / f"{safe}.json"
     now = time.time()

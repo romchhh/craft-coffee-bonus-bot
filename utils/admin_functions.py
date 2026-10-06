@@ -7,9 +7,9 @@ import pandas as pd
 
 def format_message_text(message) -> str:
     """
-    Повертає текст повідомлення (text або caption), відформатований через format_entities.
-    Використовувати для всіх повідомлень адміна при редагуванні контенту та розсилках.
-    Зберігає теги форматування та premium (custom_emoji).
+    Return message text (text or caption) formatted via format_entities.
+    Use for all admin content editing and broadcasts.
+    Keeps formatting tags and premium custom_emoji.
     """
     if message.text is not None:
         text = message.text
@@ -83,7 +83,7 @@ def format_entities(text: str, entities: list = None) -> str:
             
             entity_text = text[offset:offset + length]
             
-            # Для custom_emoji entity_text може містити невидимий placeholder
+            # For custom_emoji, entity_text may contain an invisible placeholder
             if not entity_text.strip() and entity_type != "custom_emoji":
                 continue
             
@@ -221,7 +221,7 @@ def get_entity_tags(entity, entity_text: str) -> tuple:
         open_tag = f'<a href="https://t.me/hashtag/{entity_text[1:]}">'
         close_tag = "</a>"
     elif entity_type == "custom_emoji":
-        # Зберігаємо custom_emoji_id для відправки преміум емодзі від бота
+        # Keep custom_emoji_id to send premium emoji from the bot
         custom_emoji_id = getattr(entity, 'custom_emoji_id', None)
         if not custom_emoji_id:
             return "", ""

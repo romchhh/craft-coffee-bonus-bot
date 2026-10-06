@@ -1,4 +1,4 @@
-"""Агрегована статистика клієнтів і лояльності для адмін-панелі."""
+"""Aggregated client/loyalty stats for the admin panel."""
 from __future__ import annotations
 
 import logging
@@ -112,8 +112,8 @@ def get_loyalty_statistics_summary() -> dict:
 
 def fetch_poster_bonus_balances() -> dict:
     """
-    Сума бонусів на картках клієнтів у Poster (лише зареєстровані в боті).
-    При помилці API повертає нулі та error.
+    Sum of bonus balances on Poster cards (registered bot clients only).
+    On API error returns zeroes and error.
     """
     from services import poster
 

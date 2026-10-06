@@ -1,4 +1,4 @@
-"""Налаштування лояльності (вітальний бонус, % кешбеку)."""
+"""Loyalty settings (welcome bonus, cashback %)."""
 from __future__ import annotations
 
 from config import (
@@ -256,7 +256,7 @@ def mark_transaction_ignored(
     payed_sum_uah: float = 0,
     bonus_spent_uah: float = 0,
 ) -> None:
-    """Чек переглянуто, бонуси не нараховуємо (не клієнт бота тощо)."""
+    """Receipt seen; no bonuses (not a bot client, etc.)."""
     mark_transaction_processed(
         transaction_id,
         poster_client_id=poster_client_id,

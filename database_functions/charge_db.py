@@ -1,4 +1,4 @@
-"""Стан програми «Заряд» і рівнів кешбеку."""
+"""Charge program state and cashback tiers."""
 from __future__ import annotations
 
 from datetime import datetime

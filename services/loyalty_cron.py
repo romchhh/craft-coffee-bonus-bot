@@ -1,4 +1,4 @@
-"""Періодична перевірка закритих чеків Poster для клієнтів бонусної програми."""
+"""Periodic scan of closed Poster receipts for loyalty clients."""
 from __future__ import annotations
 
 import asyncio
@@ -38,8 +38,8 @@ async def scan_closed_transactions(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """
-    Знаходить закриті чеки з клієнтами з бота, які ще не в processed_transactions.
-    dry_run=True — лише звіт, без нарахування.
+    Find closed receipts for bot clients not yet in processed_transactions.
+    dry_run=True — report only, no credits.
     """
     days = lookback_days if lookback_days is not None else LOYALTY_CRON_LOOKBACK_DAYS
     bot_clients = registered_poster_client_ids()
@@ -224,10 +224,10 @@ async def _main_cli() -> None:
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Перевірка закритих чеків Poster для лояльності")
-    parser.add_argument("--dry-run", action="store_true", help="Лише звіт, без нарахування")
+    parser = argparse.ArgumentParser(description="Scan closed Poster receipts for loyalty")
+    parser.add_argument("--dry-run", action="store_true", help="Report only, no credits")
     parser.add_argument("--days", type=int, default=LOYALTY_CRON_LOOKBACK_DAYS)
-    parser.add_argument("--apply", action="store_true", help="Нарахувати бонуси (без --dry-run)")
+    parser.add_argument("--apply", action="store_true", help="Apply bonus credits (without --dry-run)")
     args = parser.parse_args()
     dry = args.dry_run or not args.apply
     report = await scan_closed_transactions(lookback_days=args.days, bot=None, dry_run=dry)

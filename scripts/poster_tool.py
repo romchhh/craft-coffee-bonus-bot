@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """
-Poster API: клієнти, бонуси, тестові дані. Усе в одному файлі.   pip install requests
+Poster API helpers: clients, bonuses, test data.
 
-Просто запусти без аргументів: python poster_tool.py
-Скрипт покаже меню і про все запитає в консолі (токен, групу, імена, телефони, бонуси).
+  pip install requests
+  python scripts/poster_tool.py
 
-Токен: повний особистий токен з Доступ -> Інтеграції (вигляд "число:хеш").
-Якщо змінної POSTER_TOKEN немає, скрипт попросить його ввести (ввід прихований).
-Можна також покласти POSTER_TOKEN=... у файл .env поруч зі скриптом (не коміть його в git).
-
-Бонуси в API, найімовірніше, у копійках (не підтверджено документацією), тому є множник
-(пункт меню 8, за замовчуванням 100). Якщо в Poster замість 50.00 грн видно 0.50,
-постав множник 1 і перестворити тестових.
-
-Режим з аргументами теж працює: groups, create, seed, list, get, set-bonus, cleanup,
-auth-url, token. Деталі: python poster_tool.py --help
+Token: full personal token from Access -> Integrations ("number:hash").
+Loads POSTER_TOKEN from project-root .env when present.
 """
 import argparse
 import getpass
@@ -27,13 +19,14 @@ from urllib.parse import urlencode
 
 import requests
 
+ROOT = Path(__file__).resolve().parent.parent
 API = "https://joinposter.com/api"
 TIMEOUT = 20
-STATE_FILE = Path("test_clients.json")  # id клієнтів, створених командою seed
+STATE_FILE = Path(__file__).resolve().parent / "test_clients.json"
 SETTINGS = {"mult": int(os.environ.get("POSTER_BONUS_MULT", "100"))}
-CARD_SEQ_START = 900001  # окремий діапазон номерів карток для тестових клієнтів
+CARD_SEQ_START = 900001  # separate card-number range for test clients
 
-# Вигадані дані. Телефони з діапазону, який навряд чи реальний.
+# Fake data. Phones from a range unlikely to be real.
 TEST_CLIENTS = [
     {"name": "TEST Іван Тестовий",   "phone": "0500000001", "bonus": 0,    "sex": 1, "birthday": "1990-05-12"},
     {"name": "TEST Олена Тестова",   "phone": "0500000002", "bonus": 50,   "sex": 2, "birthday": "1995-11-03"},
@@ -43,10 +36,10 @@ TEST_CLIENTS = [
 ]
 
 
-# ---------- допоміжні функції ----------
+# ---------- helpers ----------
 
 def load_dotenv() -> None:
-    path = Path(".env")
+    path = ROOT / ".env"
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -84,7 +77,7 @@ def normalize_phone(raw: str) -> str:
 
 
 def ean13_from_seq(seq: int) -> str:
-    """Унікальний номер картки у форматі EAN-13 (префікс 2 = внутрішнє використання)."""
+    """Unique EAN-13 card number (prefix 2 = internal use)."""
     base = "2" + f"{seq:011d}"
     total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(base))
     return base + str((10 - total % 10) % 10)
@@ -95,7 +88,7 @@ def to_minor(amount) -> int:
 
 
 def call(method: str, data: dict | None = None, params: dict | None = None) -> dict:
-    """Метод Poster API. GET без data, POST з data (форма)."""
+    """Poster API method. GET without data, POST with form data."""
     url = f"{API}/{method}"
     query = {"token": get_token(), **(params or {})}
     if data is None:
@@ -121,7 +114,7 @@ def show(obj) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
 
 
-# ---------- команди (працюють і з аргументами, і з меню) ----------
+# ---------- commands (CLI args and menu) ----------
 
 def cmd_auth_url(_a):
     query = urlencode({"application_id": env("POSTER_APP_ID"),
@@ -192,7 +185,7 @@ def cmd_seed(a):
             continue
         try:
             result = call("clients.createClient", payload)
-        except SystemExit as exc:  # наприклад, дубль: йдемо далі
+        except SystemExit as exc:  # e.g. duplicate: continue
             print(f"[пропуск] {item['name']}: {exc}")
             continue
         client_id = result.get("response")
@@ -237,7 +230,7 @@ def cmd_cleanup(a):
     save_state(left)
 
 
-# ---------- інтерактивний режим ----------
+# ---------- interactive mode ----------
 
 def ask(prompt: str, default=None, required: bool = True) -> str:
     suffix = f" [{default}]" if default not in (None, "") else ""
@@ -277,7 +270,7 @@ def confirm(prompt: str, default: bool = False) -> bool:
 
 
 def pick_group() -> int:
-    """Показує групи клієнтів з Poster і просить вибрати id."""
+    """Show Poster client groups and ask for an id."""
     try:
         body = call("clients.getGroups")
         items = body.get("response", [])
@@ -397,7 +390,7 @@ def interactive() -> None:
             print(f"\n[помилка] {exc}")
 
 
-# ---------- запуск ----------
+# ---------- entrypoint ----------
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__,

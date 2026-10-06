@@ -1,11 +1,11 @@
-"""Адреси закладів Крафт (Бровари) та соцмережі."""
+"""Craft venue addresses (Brovary) and social links."""
 from __future__ import annotations
 
 INSTAGRAM_URL = "https://www.instagram.com/kraft_kava_brovary"
 
 CITY = "Бровари, Україна"
 
-# slug = ім'я файлу webapp/locations/{slug}.jpg
+# slug = filename under webapp/locations/{slug}.jpg
 BRAND_LOCATIONS: list[dict[str, str]] = [
     {
         "slug": "kraft-1",

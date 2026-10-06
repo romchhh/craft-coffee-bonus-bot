@@ -1,10 +1,9 @@
-"""Квести та досягнення MVP (D571–D580) + винагороди з адмінки."""
+"""Quests and achievements; rewards from admin settings."""
 from __future__ import annotations
 
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import Any
 
 from database_functions import quests_db as qdb
 from database_functions.client_db import get_user
@@ -31,8 +30,7 @@ DAYS_STEPS = (5, 15, 30)
 
 _DRINK_RE = re.compile(
     r"кав|кофе|coffee|еспрес|латте|лате|капуч|американо|раф|чай|tea|лимонад|смузі|"
-    r"фреш|сік|какао|матча|напій|флет|мокко|мока|глясе|айс|мілкшейк|бабл|пунш|"
-    r"кола|лимонад",
+    r"фреш|сік|какао|матча|напій|флет|мокко|мока|глясе|айс|мілкшейк|бабл|пунш|кола",
     re.I,
 )
 _FOOD_RE = re.compile(
@@ -41,7 +39,6 @@ _FOOD_RE = re.compile(
     r"морозив|батончик|шоколад|жуйк|food|snack",
     re.I,
 )
-# Категорії Poster важливіші за назву позиції (добавки/атракціони — other)
 _CAT_DRINK_RE = re.compile(
     r"напої|кав|лимонад|смузі|мілкшейк|какао|матча|ча[їи]|раф|глясе|еспресо|"
     r"американо|капуч|лат|флет|мока|бабл|пунш|холодна\s*кав|зимов(і|е)\s*напо",
@@ -52,7 +49,6 @@ _CAT_OTHER_RE = re.compile(r"добавк|молоко|атракціон|бар
 
 
 def _cycle_id_for_user(user: dict) -> str:
-    """Один 14-денний цикл від реєстрації / join_date (без автоповтору D581)."""
     raw = (user.get("join_date") or user.get("last_activity") or "")[:10]
     if not raw or len(raw) < 10:
         raw = now_kyiv().strftime("%Y-%m-%d")
@@ -114,7 +110,7 @@ def _ensure_cycle_quests(user_id: int, user: dict) -> str:
 
 
 def classify_product(product: dict | None, category: dict | None = None) -> str:
-    """Повертає drink | food | other."""
+    """Return drink | food | other."""
     cat = ((category or {}).get("category_name") or (category or {}).get("name") or "").strip()
     if cat and _CAT_OTHER_RE.search(cat):
         return "other"
@@ -145,7 +141,7 @@ def _tx_items(tx: dict) -> list[dict]:
         cat = cats_map.get(str(p.get("menu_category_id") or p.get("category_id") or ""))
         kind = classify_product(p, cat)
         name = (p.get("product_name") or pid).strip()
-        # базова позиція напою: без об'єму / молока (груба нормалізація)
+        # drink base key: strip volume / milk (rough normalize)
         base = re.sub(r"\d+\s*(мл|ml|л|g|гр)?", "", name, flags=re.I)
         base = re.sub(r"\s+", " ", base).strip().lower()
         items.append({"product_id": pid, "name": name, "kind": kind, "base_key": base or pid})
@@ -184,10 +180,7 @@ def on_purchase_for_quests(
     *,
     closed_at: datetime | None = None,
 ) -> list[dict]:
-    """
-    Оновити прогрес квестів після закритого чека.
-    Повертає список подій {quest_key, title, reward_uah, completed}.
-    """
+    """Update quest progress after a closed receipt."""
     user = get_user(telegram_user_id)
     if not user or not user.get("registered"):
         return []
@@ -204,7 +197,6 @@ def on_purchase_for_quests(
     events: list[dict] = []
     uid = int(telegram_user_id)
 
-    # --- постійне: перша покупка ---
     first = qdb.get_progress(uid, qdb.ACH_FIRST, "permanent")
     if first and not first.get("completed"):
         qdb.upsert_progress(
@@ -230,7 +222,6 @@ def on_purchase_for_quests(
             }
         )
 
-    # --- постійне: дні з покупками ---
     days_row = qdb.get_progress(uid, qdb.ACH_DAYS, "permanent") or {}
     meta = dict(days_row.get("meta") or {})
     day_list = list(meta.get("days") or [])
@@ -269,7 +260,6 @@ def on_purchase_for_quests(
     if not in_cycle:
         return events
 
-    # --- visits ---
     visits = qdb.get_progress(uid, qdb.QUEST_VISITS, cycle_id)
     if visits and not visits.get("completed") and not qdb.has_event_for_tx(uid, tid, qdb.QUEST_VISITS):
         vmeta = dict(visits.get("meta") or {})
@@ -315,7 +305,6 @@ def on_purchase_for_quests(
                     }
                 )
 
-    # --- drinks ---
     drinks = qdb.get_progress(uid, qdb.QUEST_DRINKS, cycle_id)
     if drinks and not drinks.get("completed"):
         dmeta = dict(drinks.get("meta") or {})
@@ -354,7 +343,6 @@ def on_purchase_for_quests(
                 }
             )
 
-    # --- combo drink+food ---
     combo = qdb.get_progress(uid, qdb.QUEST_COMBO, cycle_id)
     if combo and not combo.get("completed"):
         cmeta = dict(combo.get("meta") or {})
@@ -421,7 +409,7 @@ def on_purchase_for_quests(
 
 
 def build_quests_ui(user_id: int) -> dict:
-    """Дані для мініапу + сумісність зі старим quests_payload."""
+    """Quest and referral payload for the mini app."""
     from services.referrals import referral_ui_payload
 
     user = get_user(user_id) or {}

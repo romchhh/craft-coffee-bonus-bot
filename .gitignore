@@ -5,7 +5,10 @@
 cache/
 database/*.db
 database/*.db-*
-database_export.xlsx
+database_export*.xlsx
+scripts/test_clients.json
+logs/*.log
+!logs/.gitkeep
 
 __pycache__/
 *.py[cod]
@@ -22,3 +25,4 @@ certs/*.key
 certs/*.p12
 certs/*.pem
 !certs/.gitkeep
+!logs/.gitkeep

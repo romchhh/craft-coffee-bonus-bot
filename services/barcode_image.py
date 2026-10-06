@@ -1,4 +1,4 @@
-"""PNG штрихкод картки для повідомлень у Telegram."""
+"""PNG card barcode for Telegram messages."""
 from __future__ import annotations
 
 from io import BytesIO

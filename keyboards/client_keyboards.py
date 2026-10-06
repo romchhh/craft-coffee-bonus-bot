@@ -93,7 +93,7 @@ def get_socials_keyboard():
 
 
 async def set_webapp_menu(bot):
-    """Кнопка меню зліва в чаті відкриває Mini App."""
+    """Left chat menu button opens the Mini App."""
     if WEBAPP_URL:
         url = WEBAPP_URL.rstrip("/")
         await bot.set_chat_menu_button(

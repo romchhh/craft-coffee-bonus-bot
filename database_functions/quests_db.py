@@ -1,4 +1,4 @@
-"""Прогрес квестів і досягнень MVP."""
+"""Quest and achievement progress."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ from utils.kyiv_time import kyiv_now_str
 conn = get_connection()
 cursor = conn.cursor()
 
-# Ключі квестів / досягнень
+# Quest / achievement keys
 QUEST_VISITS = "visits"
 QUEST_COMBO = "combo"
 QUEST_DRINKS = "drinks"

@@ -1,4 +1,4 @@
-"""Реферальні запрошення (D291): статус, умови, відкладене нарахування."""
+"""Referral invites: statuses and grant progress."""
 from __future__ import annotations
 
 import json
@@ -66,9 +66,9 @@ def _loads(raw: str | None) -> dict:
 def _row(row) -> dict | None:
     if not row:
         return None
-    d = dict(row)
-    d["terms"] = _loads(d.get("terms_json"))
-    return d
+    data = dict(row)
+    data["terms"] = _loads(data.get("terms_json"))
+    return data
 
 
 def get_by_friend(friend_user_id: int | str) -> dict | None:
@@ -95,7 +95,7 @@ def create_referral(
     registered_at: str,
     terms: dict[str, Any],
     amount_uah: float,
-) -> dict:
+) -> dict | None:
     now = kyiv_now_str()
     cursor.execute(
         """
@@ -118,13 +118,13 @@ def create_referral(
         ),
     )
     conn.commit()
-    return get_by_friend(friend_user_id)  # type: ignore[return-value]
+    return get_by_friend(friend_user_id)
 
 
 def update_referral(friend_user_id: int, **fields: Any) -> None:
     if not fields:
         return
-    cols = []
+    cols: list[str] = []
     vals: list[Any] = []
     for key, value in fields.items():
         if key == "terms":
@@ -152,7 +152,7 @@ def list_pending_grants(now_str: str) -> list[dict]:
         """,
         (STATUS_PENDING_GRANT, now_str),
     ).fetchall()
-    return [_row(r) for r in rows if r]
+    return [_row(r) for r in rows]
 
 
 def list_owner_review() -> list[dict]:
@@ -160,7 +160,7 @@ def list_owner_review() -> list[dict]:
         "SELECT * FROM referrals WHERE status = ? ORDER BY qualified_at ASC",
         (STATUS_OWNER_REVIEW,),
     ).fetchall()
-    return [_row(r) for r in rows if r]
+    return [_row(r) for r in rows]
 
 
 def list_by_qualifying_tx(transaction_id: str) -> list[dict]:
@@ -168,11 +168,18 @@ def list_by_qualifying_tx(transaction_id: str) -> list[dict]:
         "SELECT * FROM referrals WHERE qualifying_tx_id = ?",
         (str(transaction_id),),
     ).fetchall()
-    return [_row(r) for r in rows if r]
+    return [_row(r) for r in rows]
+
+
+def list_by_status(status: str) -> list[dict]:
+    rows = cursor.execute(
+        "SELECT * FROM referrals WHERE status = ?",
+        (status,),
+    ).fetchall()
+    return [_row(r) for r in rows]
 
 
 def count_referrer_success_on_day(referrer_user_id: int, day_yyyy_mm_dd: str) -> int:
-    """Успішні кваліфікації за календарний день Києва (qualified_at)."""
     row = cursor.execute(
         """
         SELECT COUNT(*) FROM referrals
@@ -193,56 +200,30 @@ def count_referrer_success_on_day(referrer_user_id: int, day_yyyy_mm_dd: str) ->
 
 def referrer_stats(referrer_user_id: int) -> dict[str, int | float]:
     rid = int(referrer_user_id)
-    registered = cursor.execute(
-        "SELECT COUNT(*) FROM referrals WHERE referrer_user_id = ?",
-        (rid,),
-    ).fetchone()[0]
-    successful = cursor.execute(
+    row = cursor.execute(
         """
-        SELECT COUNT(*) FROM referrals
-        WHERE referrer_user_id = ? AND status IN (?, ?)
+        SELECT
+            COUNT(*) AS registered_friends,
+            SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) AS successful,
+            SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS paid,
+            SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS owner_review,
+            COALESCE(SUM(CASE WHEN status = ? THEN amount_uah ELSE 0 END), 0) AS earned_uah
+        FROM referrals
+        WHERE referrer_user_id = ?
         """,
-        (rid, STATUS_PAID, STATUS_PENDING_GRANT),
-    ).fetchone()[0]
-    paid = cursor.execute(
-        "SELECT COUNT(*) FROM referrals WHERE referrer_user_id = ? AND status = ?",
-        (rid, STATUS_PAID),
-    ).fetchone()[0]
-    review = cursor.execute(
-        "SELECT COUNT(*) FROM referrals WHERE referrer_user_id = ? AND status = ?",
-        (rid, STATUS_OWNER_REVIEW),
-    ).fetchone()[0]
-    earned = cursor.execute(
-        """
-        SELECT COALESCE(SUM(amount_uah), 0) FROM referrals
-        WHERE referrer_user_id = ? AND status = ?
-        """,
-        (rid, STATUS_PAID),
-    ).fetchone()[0]
+        (
+            STATUS_PAID,
+            STATUS_PENDING_GRANT,
+            STATUS_PAID,
+            STATUS_OWNER_REVIEW,
+            STATUS_PAID,
+            rid,
+        ),
+    ).fetchone()
     return {
-        "registered_friends": int(registered or 0),
-        "successful": int(successful or 0),
-        "paid": int(paid or 0),
-        "owner_review": int(review or 0),
-        "earned_uah": float(earned or 0),
+        "registered_friends": int(row["registered_friends"] or 0),
+        "successful": int(row["successful"] or 0),
+        "paid": int(row["paid"] or 0),
+        "owner_review": int(row["owner_review"] or 0),
+        "earned_uah": float(row["earned_uah"] or 0),
     }
-
-
-def list_active_for_refund_scan() -> list[dict]:
-    rows = cursor.execute(
-        """
-        SELECT * FROM referrals
-        WHERE qualifying_tx_id IS NOT NULL
-          AND status IN (?, ?, ?)
-        """,
-        (STATUS_PENDING_GRANT, STATUS_OWNER_REVIEW, STATUS_PAID),
-    ).fetchall()
-    return [_row(r) for r in rows if r]
-
-
-def list_by_status(status: str) -> list[dict]:
-    rows = cursor.execute(
-        "SELECT * FROM referrals WHERE status = ?",
-        (status,),
-    ).fetchall()
-    return [_row(r) for r in rows if r]

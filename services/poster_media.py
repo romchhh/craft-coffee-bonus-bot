@@ -1,4 +1,4 @@
-"""Локальний кеш зображень меню Poster."""
+"""Local cache for Poster menu images."""
 from __future__ import annotations
 
 import json
@@ -45,7 +45,7 @@ def _data_path(kind: str, item_id: int, ext: str) -> Path:
 
 
 def ensure_cached(kind: str, item_id: int, poster_path: str | None) -> Path | None:
-    """Завантажує зображення з Poster CDN у локальний кеш."""
+    """Download an image from Poster CDN into local cache."""
     url = media_url(poster_path)
     if not url:
         return None

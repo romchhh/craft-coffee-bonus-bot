@@ -30,8 +30,8 @@ async def show_link_stats(callback: types.CallbackQuery):
         visits_count = 0
         
         for stat in detailed_stats:
-            if stat[0] == link_id:  # stat[0] - це id
-                visits_count = stat[2]  # stat[2] - це link_count (переходи)
+            if stat[0] == link_id:  # stat[0] is id
+                visits_count = stat[2]  # stat[2] is link_count (clicks)
                 break
         
         try:

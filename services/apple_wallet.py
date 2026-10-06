@@ -1,4 +1,4 @@
-"""Генерація підписаного Apple Wallet (.pkpass) для картки Craft Coffee."""
+"""Generate a signed Apple Wallet (.pkpass) for Craft Coffee card."""
 from __future__ import annotations
 
 import hashlib
@@ -67,7 +67,7 @@ def _load_cert(path: str):
 
 
 def _ensure_assets() -> dict[str, bytes]:
-    """Мінімальні PNG для pass (icon / logo)."""
+    """Minimal PNGs for the pass (icon / logo)."""
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     files: dict[str, bytes] = {}
 
@@ -91,10 +91,10 @@ def _ensure_assets() -> dict[str, bytes]:
 
         img = Image.new("RGB", (w, h), (28, 20, 16))
         draw = ImageDraw.Draw(img)
-        # кругла «чашка»-пляма
+        # round cup blot
         margin = max(4, min(w, h) // 8)
         draw.ellipse((margin, margin, w - margin, h - margin), fill=(196, 106, 43))
-        # літера K
+        # letter K
         try:
             font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", max(14, h // 2))
         except Exception:
@@ -217,7 +217,7 @@ def create_pkpass(
     files = {"pass.json": json.dumps(pass_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
     files.update(_ensure_assets())
 
-    # manifest: SHA1 хеш кожного файлу (вимога PassKit)
+    # manifest: SHA1 of each file (PassKit requirement)
     manifest = {
         name: hashlib.sha1(content).hexdigest()
         for name, content in files.items()

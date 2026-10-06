@@ -1,4 +1,4 @@
-"""Обробка закритих чеків Poster: нарахування кешбеку + повідомлення в Telegram."""
+"""Process closed Poster receipts: cashback credit + Telegram notify."""
 from __future__ import annotations
 
 import logging
@@ -21,14 +21,14 @@ log = logging.getLogger(__name__)
 
 
 def _round_bonus(amount: float) -> float:
-    """Округлення до копійки вниз (як у правилах лояльності)."""
+    """Round down to a kopiyka (per loyalty rules)."""
     return math.floor(amount * 100) / 100
 
 
 async def process_closed_transaction(transaction_id: str | int, bot=None) -> dict[str, Any]:
     """
-    Якщо чек закритий і прив’язаний до клієнта з бота —
-    нараховує % кешбеку від оплати грошима і шле подяку в Telegram.
+    If the receipt is closed and linked to a bot client —
+    credit cashback % from cash payment and send a thank-you in Telegram.
     """
     tid = str(transaction_id)
     if is_transaction_processed(tid):
@@ -57,7 +57,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
 
     user = get_user_by_poster_client_id(client_id)
     if not user:
-        # Чек з клієнтом Poster, але не з нашого бота — ігноруємо
+        # Poster client not linked to this bot — ignore
         mark_transaction_processed(
             tid,
             poster_client_id=client_id,
@@ -68,7 +68,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         )
         return {"status": "skip", "reason": "client_not_in_bot"}
 
-    payed_sum_uah = poster.from_minor(tx.get("payed_sum"))  # готівка + карта
+    payed_sum_uah = poster.from_minor(tx.get("payed_sum"))  # cash + card
     bonus_spent_uah = poster.from_minor(tx.get("payed_bonus") or 0)
     percent = get_cashback_percent_for_user(int(user["user_id"]))
     bonus_uah = _round_bonus(payed_sum_uah * percent / 100.0)
@@ -78,7 +78,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     if closed_raw:
         closed_at = parse_purchase_datetime(str(closed_raw))
 
-    # Позначити одразу, щоб не задвоїти при повторному webhook
+    # Mark early to avoid double credit on webhook retry
     mark_transaction_processed(
         tid,
         poster_client_id=client_id,
@@ -116,12 +116,11 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
                     int(ref_result["referrer_user_id"]),
                     "⏳ <b>Винагорода на перевірці</b>\n\n"
                     f"Запрошення друга <b>{ref_result.get('friend_name') or 'Друг'}</b> "
-                    "отримано. Нарахування після перевірки Owner.",
+                    "отримано. Нарахування після перевірки адміністратора.",
                     parse_mode="HTML",
                 )
             except Exception as exc:
                 log.info("referral review notify failed: %s", exc)
-        # фактичне +повідомлення — наступного дня о 00:00 (cron)
     except Exception as exc:
         log.warning("referral on purchase failed user=%s: %s", user["user_id"], exc)
 
