@@ -21,7 +21,6 @@ from database_functions.client_db import (
     mark_referral_bonus_paid,
     set_referred_by_sticky,
 )
-from database_functions.db import get_connection
 from database_functions.settings_db import get_referral_bonus_uah
 from services import poster
 from services.poster_client_cache import invalidate_client
@@ -73,23 +72,6 @@ def next_kyiv_midnight(after: datetime | None = None) -> datetime:
     return datetime(nxt.year, nxt.month, nxt.day, tzinfo=KYIV_TZ)
 
 
-def referrer_has_first_purchase(referrer_user_id: int) -> bool:
-    user = get_user(referrer_user_id)
-    if not user or not user.get("registered"):
-        return False
-    if user.get("last_purchase_at"):
-        return True
-    row = get_connection().execute(
-        """
-        SELECT 1 FROM processed_transactions
-        WHERE telegram_user_id = ? AND COALESCE(payed_sum_uah, 0) > 0
-        LIMIT 1
-        """,
-        (int(referrer_user_id),),
-    ).fetchone()
-    return bool(row)
-
-
 def remember_referral_click(friend_user_id: int, referrer_user_id: int) -> bool:
     """Lock first referrer (pending-invite TTL from config)."""
     if int(friend_user_id) == int(referrer_user_id):
@@ -130,13 +112,6 @@ def bind_referrer_on_registration(new_user_id: int, referred_by: int | None) -> 
         return False
 
     if not referred_by or int(referred_by) == int(new_user_id):
-        return False
-    if not referrer_has_first_purchase(int(referred_by)):
-        log.info(
-            "referral bind skipped: referrer=%s has no purchase (friend=%s)",
-            referred_by,
-            new_user_id,
-        )
         return False
 
     referrer = get_user(referred_by)
@@ -412,7 +387,8 @@ def expire_stale_bound() -> int:
 
 
 def referral_ui_payload(user_id: int) -> dict[str, Any]:
-    can_invite = referrer_has_first_purchase(int(user_id))
+    user = get_user(user_id) or {}
+    can_invite = bool(user.get("registered"))
     stats = rdb.referrer_stats(int(user_id))
     terms = current_terms()
     amount = float(terms["amount_uah"])
@@ -432,7 +408,5 @@ def referral_ui_payload(user_id: int) -> dict[str, Any]:
             f"+{amount:g} грн після покупки друга від {min_cash:g} грн грошима "
             f"(протягом {window} днів). "
             "Бонуси стають доступні наступного дня о 00:00 за Києвом."
-            if can_invite
-            else "Посилання для запрошень відкриється після твоєї першої покупки в Kraft."
         ),
     }

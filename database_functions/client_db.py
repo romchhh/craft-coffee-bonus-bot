@@ -110,7 +110,10 @@ def save_registration(
     poster_client_id: int,
     card_number: str,
     welcome_bonus_given: bool = True,
+    card_short_id: str | None = None,
 ):
+    # Display code under barcode == Poster card_number (same value).
+    short = (card_short_id or card_number or "").strip() or None
     cursor.execute(
         """
         UPDATE users SET
@@ -119,6 +122,7 @@ def save_registration(
             birthday = ?,
             poster_client_id = ?,
             card_number = ?,
+            card_short_id = ?,
             registered = 1,
             welcome_bonus_given = ?,
             last_activity = ?
@@ -130,6 +134,7 @@ def save_registration(
             birthday,
             poster_client_id,
             card_number,
+            short,
             1 if welcome_bonus_given else 0,
             kyiv_now_str(),
             user_id,

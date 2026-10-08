@@ -171,15 +171,13 @@
   };
 
   const cardIdHtml = (cardNumber) => {
+    // Same digits as Poster bonus card_number (barcode message).
     const digits = String(cardNumber || "").replace(/\D/g, "");
     if (!digits) return "";
-    if (digits.length < 4) {
-      return `<div class="card-id-line">${escapeHtml(digits)}</div>`;
-    }
-    const head = digits.slice(0, -4);
+    const head = digits.length > 4 ? digits.slice(0, -4) : "";
     const tail = digits.slice(-4);
     return `<div class="card-id-line" aria-label="Номер картки">
-      <span class="card-id-head">${escapeHtml(head)}</span>
+      ${head ? `<span class="card-id-head">${escapeHtml(head)}</span>` : ""}
       <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
       <span class="card-id-label">id</span>
     </div>
@@ -407,6 +405,7 @@
   }
 
   function setTab(tab) {
+    if (tab === "quests") tab = "card";
     state.tab = tab;
     closeBarcodeModal();
     unlockAppScroll();
@@ -431,29 +430,32 @@
     const L = me.loyalty;
     if (!L) return "";
     const bonus = Number(me.bonus || 0);
-    const pct = L.cashback_percent ?? 5;
+    const pct = L.cashback_percent ?? 1;
     const next = L.next_percent ?? pct;
     const charge = Number(L.charge ?? 0);
-    const goal = Number(L.charge_goal ?? 50);
+    const goal = Number(L.charge_goal ?? 15);
+    const floor = Number(L.charge_floor ?? 0);
     const rem = Number(L.charge_remaining ?? Math.max(0, goal - charge));
-    const progress = goal > 0 ? Math.min(100, (charge / goal) * 100) : 0;
+    const segment = Number(L.charge_segment ?? Math.max(1, goal - floor));
+    const inSeg = Number(L.charge_in_segment ?? Math.max(0, charge - floor));
+    const progress = segment > 0 ? Math.min(100, (inSeg / segment) * 100) : 0;
     const atMax = pct >= (L.max_tier ?? 10);
-    const levels = (L.levels || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-      .map((n) => `<span class="level-pill${n === pct ? " on" : ""}">${n}%</span>`)
-      .join("");
+    const how = L.how_next;
+    const howLine = how
+      ? `<p class="muted">Щоб досягнути <strong>${how.target_percent}%</strong>, потрібно <strong>${how.need_charges}</strong> Зарядів. ${escapeHtml(how.per_check || "1 Заряд = чек від 50 грн")}.</p>`
+      : `<p class="muted">Максимальний кешбек. Кожен чек від ${L.min_check_uah ?? 50} грн дає 1 Заряд.</p>`;
     const bonusLine = L.bonus_hint
       ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))} грн</strong> бонусів — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
       : "";
 
-    const mapsUrl = escapeHtml(L.maps_url || "https://www.google.com/maps");
     const bonusBanner = bonus > 0
-      ? `<button type="button" class="loyalty-use-banner" data-maps-url="${mapsUrl}">
+      ? `<button type="button" class="loyalty-use-banner" id="go-spots-from-bonus">
           <span class="loyalty-use-banner-ico">${icon("gift")}</span>
           <span class="loyalty-use-banner-text">
             <strong>${L.bonus_hint
               ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} грн бонусів`
               : `На балансі ${escapeHtml(String(Math.floor(bonus * 100) / 100))} грн — час скористатися`}</strong>
-            <span class="muted">Маршрут до Craft Coffee в Google Maps</span>
+            <span class="muted">Відкрити заклади Craft Coffee</span>
           </span>
           <span class="loyalty-use-banner-arrow" aria-hidden="true">${icon("arrow-up-right")}</span>
         </button>`
@@ -468,8 +470,8 @@
           </div>
           ${atMax ? `<div class="loyalty-badge">${icon("zap")} Макс. рівень</div>` : `
           <div class="loyalty-next">
-            <div class="muted">До ${next}% — ще ${rem % 1 === 0 ? rem : rem.toFixed(1)} Заряду</div>
-            <div class="charge-meta"><span>${icon("zap")}</span> ${charge % 1 === 0 ? charge : charge.toFixed(1)} / ${goal}</div>
+            <div class="muted">До ${next}% — ще ${rem % 1 === 0 ? rem : rem.toFixed(0)} Заряду</div>
+            <div class="charge-meta"><span>${icon("zap")}</span> ${charge % 1 === 0 ? charge : charge.toFixed(0)} / ${goal}</div>
           </div>`}
         </div>
         ${atMax ? "" : `<div class="charge-track" aria-hidden="true"><div class="charge-fill" style="width:${progress}%"></div></div>`}
@@ -477,12 +479,8 @@
         <details class="loyalty-details">
           <summary>Як це працює ${icon("chevron-down")}</summary>
           <div class="loyalty-details-body">
-            <h4>Рівні кешбеку</h4>
-            <div class="level-row">${levels}</div>
-            <h4>Як отримати Заряд</h4>
-            <p class="muted">Перша зарахована покупка дня: 50–150 грн — <strong>1 Заряд</strong>, понад 150 грн — <strong>2</strong>. Наступні того ж дня: <strong>0,5</strong> або <strong>1,5</strong>. Між зарахованими візитами — не менше 2 годин.</p>
-            <h4>Що відбувається під час перерви</h4>
-            <p class="muted">Після 30 календарних днів без покупок незавершений Заряд зменшується на 0,5 за день до нуля. Бонуси згорають, якщо 90 днів не було покупок.</p>
+            <h4>Наступний рівень</h4>
+            ${howLine}
             ${bonusLine}
           </div>
         </details>
@@ -495,6 +493,66 @@
     </div>`;
   }
 
+  function renderBirthdayHome(me) {
+    const Q = me.quests || {};
+    const bBonus = Q.birthday_bonus_uah ?? 20;
+    const bDone = Boolean(Q.birthday_bonus_claimed);
+    const bdayDisplay = hasBirthday(me.birthday) ? fmtBirthday(me.birthday) : "";
+    if (bDone || hasBirthday(me.birthday)) {
+      return `
+      <div class="panel birthday-home done">
+        <div class="quest-card-head">
+          <h3>${icon("cake")} День народження</h3>
+          ${bDone ? `<span class="quest-status">${icon("check")} Бонус отримано</span>` : ""}
+        </div>
+        <p class="muted">${bdayDisplay ? `Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : "Дату збережено."}${bDone ? ` +${escapeHtml(String(bBonus))} грн нараховано.` : ""}</p>
+      </div>`;
+    }
+    return `
+      <div class="panel birthday-home">
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+        <h3>Поділись датою народження</h3>
+        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
+        <div class="birthday-profile-picker" id="profile-birthday-root">
+          <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
+          <div class="date-fields">
+            <label class="date-field"><span>День</span><select data-bd-day></select></label>
+            <label class="date-field"><span>Місяць</span><select data-bd-month></select></label>
+            <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
+          </div>
+          <div class="quest-actions">
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонус</button>
+          </div>
+        </div>
+        <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
+      </div>`;
+  }
+
+  function renderReferralHome(me) {
+    const Q = me.quests || {};
+    const rBonus = Q.referral_bonus_uah ?? 10;
+    const refLink = Q.referral_link || "";
+    const canInvite = Boolean(Q.referral_can_invite);
+    const minCash = Q.referral_min_cash_uah ?? 50;
+    const refHint = Q.referral_hint || (
+      `+${rBonus} грн після покупки друга від ${minCash} грн. Бонуси доступні наступного дня о 00:00.`
+    );
+    const refReg = Number(Q.referrals_registered ?? 0);
+    const refOk = Number(Q.referrals_successful ?? Q.referrals_count ?? 0);
+    const refEarned = Number(Q.referrals_earned_uah ?? 0);
+    return `
+      <div class="panel referral-home">
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
+        <h3>Приведи друга</h3>
+        <p class="muted">${escapeHtml(refHint)}</p>
+        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong></p>
+        <div class="quest-actions">
+          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
+          <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
+        </div>
+      </div>`;
+  }
+
   function renderCard() {
     const me = state.me;
     if (!me) {
@@ -505,8 +563,6 @@
       </div>`;
     }
     const code = me.card_number || "";
-    const Q = me.quests || {};
-    const refBonus = Q.referral_bonus_uah ?? 10;
     const initial = (me.name || "?").trim().charAt(0).toUpperCase();
     const avatar = me.photo_url
       ? `<img class="avatar" src="${escapeHtml(me.photo_url)}" alt="" width="48" height="48">`
@@ -541,13 +597,9 @@
 
       ${renderLoyaltyCharge(me)}
 
-      <button type="button" class="referral-hero" id="open-referral-quest">
-        <span class="referral-hero-ico">${icon("users")}</span>
-        <span>
-          <strong>Приведи друга — ${escapeHtml(String(refBonus))} грн</strong>
-          <span class="muted">Поділись посиланням у розділі «Квести»</span>
-        </span>
-      </button>
+      ${renderBirthdayHome(me)}
+
+      ${renderReferralHome(me)}
     `;
   }
 
@@ -722,19 +774,16 @@
     let html = `<div class="menu-page">
       <div class="menu-page-head">
         <div class="section-title"><div class="title-ico">${icon("utensils")}</div><h2>Меню</h2></div>
-        <p class="muted menu-sub">Ціни з Poster · ${items.length} позицій</p>
+        <p class="muted menu-sub">Сезонні та акційні напої${items.length ? ` · ${items.length}` : ""}</p>
       </div>`;
     if (menuLoading) {
-      return html + `<div class="loader menu-loader"><div class="loader-icon">${icon("utensils")}</div><p>Завантажуємо меню з Poster…</p></div></div>`;
+      return html + `<div class="loader menu-loader"><div class="loader-icon">${icon("utensils")}</div><p>Завантажуємо меню…</p></div></div>`;
     }
     if (!items.length) {
-      const err = state.menuError
-        ? `<p class="error" style="margin-top:12px">${escapeHtml(state.menuError)}</p>`
-        : `<p class="muted">Не вдалося отримати позиції з Poster</p>`;
       return html + `<div class="empty">
         <div class="empty-ico">${icon("coffee")}</div>
-        ${err}
-        <button type="button" class="menu-retry-btn" id="menu-retry-btn">${icon("refresh-cw")} Оновити меню</button>
+        <p class="muted">Сезонні напої зʼявляться незабаром</p>
+        <button type="button" class="menu-retry-btn" id="menu-retry-btn">${icon("refresh-cw")} Оновити</button>
       </div></div>`;
     }
     const byCat = {};
@@ -976,10 +1025,10 @@
     let html = "";
     try {
       if (state.tab === "card") html = renderCard();
-      else if (state.tab === "quests") html = renderQuests();
       else if (state.tab === "spots") html = renderSpots();
       else if (state.tab === "menu") html = renderMenu();
       else if (state.tab === "history") html = renderHistory();
+      else html = renderCard();
     } catch (err) {
       console.error("render", state.tab, err);
       html = `<div class="empty">
@@ -1038,9 +1087,9 @@
       });
     });
 
-    const openReferral = document.getElementById("open-referral-quest");
-    if (openReferral) {
-      openReferral.addEventListener("click", () => setTab("quests"));
+    const goSpots = document.getElementById("go-spots-from-bonus");
+    if (goSpots) {
+      goSpots.addEventListener("click", () => setTab("spots"));
     }
 
     const birthdayRoot = document.getElementById("profile-birthday-root");
@@ -1086,7 +1135,7 @@
         try {
           await navigator.clipboard.writeText(refLink);
           copyRef.textContent = "Скопійовано ✓";
-          setTimeout(() => { copyRef.textContent = "Скопіювати посилання"; }, 2000);
+          setTimeout(() => { copyRef.textContent = "Скопіювати"; }, 2000);
         } catch (_) {
           window.prompt("Скопіюй посилання:", refLink);
         }
@@ -1120,7 +1169,7 @@
       state.menu = menu.items;
       state.menuCategories = menu.categories || [];
       if (!state.menu.length) {
-        state.menuError = menu.error || "Poster повернув порожнє меню";
+        state.menuError = null;
       }
     } catch (e) {
       state.menuError = e.message || "Помилка завантаження меню";
@@ -1137,7 +1186,7 @@
       state.spots = spots.items || [];
       state.spotsInstagram = spots.instagram_url || "";
       state.history = history;
-      if (state.tab === "spots" || state.tab === "history" || state.tab === "quests") render();
+      if (state.tab === "spots" || state.tab === "history") render();
     } catch (e) {
       console.warn("secondary load", e);
       if (!state.spots) state.spots = [];
@@ -1185,8 +1234,8 @@
       tabs.removeAttribute("aria-busy");
       setTabsVisible(true);
       try {
-        if (typeof tg?.enableClosingConfirmation === "function") {
-          tg.enableClosingConfirmation();
+        if (typeof tg?.disableClosingConfirmation === "function") {
+          tg.disableClosingConfirmation();
         }
       } catch (_) {}
       render();

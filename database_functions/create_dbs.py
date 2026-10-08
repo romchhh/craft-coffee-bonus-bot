@@ -5,6 +5,7 @@ from database_functions.settings_db import create_settings_table
 from database_functions.charge_db import migrate_loyalty_columns
 from database_functions.quests_db import create_quests_tables
 from database_functions.referrals_db import create_referrals_table
+from database_functions.promo_menu_db import create_promo_menu_table
 from config import administrators
 
 
@@ -14,6 +15,7 @@ def create_dbs():
     migrate_loyalty_columns()
     create_quests_tables()
     create_referrals_table()
+    create_promo_menu_table()
     create_table_links()
     create_admins_table()
 

@@ -144,7 +144,7 @@ nav#tabs {
   z-index: 5;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
   margin: 0 6px calc(6px + env(safe-area-inset-bottom));
   padding: 6px 4px;
@@ -1608,9 +1608,16 @@ body.barcode-modal-open .surface {
   margin-top: 8px;
 }
 
-.quest-card h3 {
+.quest-card h3,
+.birthday-home h3,
+.referral-home h3 {
   margin: 0 0 6px;
   font-size: 16px;
+}
+
+.birthday-home,
+.referral-home {
+  margin-top: 12px;
 }
 
 .quest-reward {

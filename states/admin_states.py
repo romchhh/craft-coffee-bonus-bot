@@ -23,3 +23,13 @@ class LoyaltySettings(StatesGroup):
     welcome_bonus = State()
     cashback_percent = State()
     edit_reward = State()
+
+
+class PromoMenu(StatesGroup):
+    title = State()
+    price = State()
+    photo = State()
+    edit_title = State()
+    edit_price = State()
+    edit_photo = State()
+    edit_sort = State()

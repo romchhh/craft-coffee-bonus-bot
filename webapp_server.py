@@ -280,6 +280,21 @@ async def api_me(request: web.Request) -> web.Response:
         phone_digits = re.sub(r"\D", "", str(phone_raw))
         phone_id_suffix = phone_digits[-4:] if phone_digits else ""
 
+    # Under-barcode digits == Poster card_number (kept in sync).
+    card_short_id = (card_number or db_user.get("card_short_id") or "").strip() or None
+    if (
+        card_number
+        and db_user.get("card_short_id") != card_number
+        and db_user.get("registered")
+    ):
+        from database_functions.db import get_connection
+
+        get_connection().execute(
+            "UPDATE users SET card_short_id = ?, card_number = ? WHERE user_id = ?",
+            (card_number, card_number, db_user["user_id"]),
+        )
+        get_connection().commit()
+
     return web.json_response(
         {
             "name": db_user.get("display_name") or db_user.get("user_first_name") or "Гість",
@@ -288,6 +303,7 @@ async def api_me(request: web.Request) -> web.Response:
             "phone_digits": phone_digits,
             "birthday": birthday,
             "card_number": card_number,
+            "card_short_id": card_short_id,
             "poster_client_id": db_user.get("poster_client_id"),
             "bonus": bonus,
             "photo_url": photo_url,
@@ -462,24 +478,29 @@ async def api_spots(request: web.Request) -> web.Response:
 
 
 async def api_menu(request: web.Request) -> web.Response:
+    """Seasonal / promo drinks from admin panel (not full Poster menu)."""
     _auth_user(request)
-    spot_id = request.rel_url.query.get("spot_id")
-    spot_id_i = int(spot_id) if spot_id else None
-    refresh = request.rel_url.query.get("refresh") == "1"
-    if refresh:
-        from services.poster_cache import invalidate
+    from database_functions import promo_menu_db as promo
 
-        invalidate("products")
-        invalidate("categories")
-        invalidate(f"menu_web_v3_{spot_id_i if spot_id_i is not None else 'all'}")
-    try:
-        payload = await asyncio.to_thread(_build_menu_payload, spot_id_i)
-    except Exception as exc:
-        log.exception("menu")
-        return web.json_response({"error": str(exc)}, status=502)
-    if not payload.get("items"):
-        log.warning("menu empty spot_id=%s refresh=%s", spot_id_i, refresh)
-    return web.json_response(payload)
+    items = []
+    for row in promo.list_items(active_only=True):
+        items.append(
+            {
+                "id": int(row["id"]),
+                "name": row["title"],
+                "category": "Сезонне меню",
+                "category_id": "promo",
+                "price": float(row["price_uah"] or 0),
+                "photo_url": promo.photo_url(row.get("photo_path")),
+                "sort_order": int(row.get("sort_order") or 0),
+            }
+        )
+    categories = (
+        [{"id": "promo", "name": "Сезонне меню", "photo_url": None, "sort_order": 1}]
+        if items
+        else []
+    )
+    return web.json_response({"items": items, "categories": categories})
 
 
 async def api_history(request: web.Request) -> web.Response:

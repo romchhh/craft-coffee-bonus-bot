@@ -79,6 +79,15 @@ def create_settings_table():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             (key, value),
         )
+    # Starter cashback is 1% (tier system); migrate old default 5.
+    row = cursor.execute(
+        "SELECT value FROM settings WHERE key = 'cashback_percent'"
+    ).fetchone()
+    if row and str(row["value"]).strip() in ("5", "5.0"):
+        cursor.execute(
+            "UPDATE settings SET value = ? WHERE key = 'cashback_percent'",
+            (str(CASHBACK_PERCENT),),
+        )
     conn.commit()
 
 

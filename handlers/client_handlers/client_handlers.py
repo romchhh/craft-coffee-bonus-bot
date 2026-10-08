@@ -37,7 +37,6 @@ from database_functions.client_db import (
     is_registered,
     get_user,
     save_registration,
-    next_card_seq,
 )
 from database_functions.create_dbs import create_dbs
 from database_functions.links_db import increment_link_count
@@ -315,20 +314,26 @@ async def _create_loyalty_card(
     phone: str,
     birthday: str | None,
 ) -> tuple[int, str, bool]:
-    """Return (poster_client_id, card_number, welcome_bonus_given)."""
-    card_number = poster.ean13_from_seq(next_card_seq() * 1000 + (telegram_id % 1000))
+    """Return (poster_client_id, card_number, welcome_bonus_given).
+
+    card_number is an 8-digit code we generate and store in Poster as the
+    bonus card number (same digits shown under the barcode in Mini App).
+    """
+    from database_functions.charge_db import allocate_card_number
+
     existing = poster.find_client_by_phone(phone)
 
     if existing:
         client_id = int(existing["client_id"])
         current_card = (existing.get("card_number") or "").strip()
-        if not current_card:
+        if current_card:
+            card_number = current_card
+        else:
+            card_number = allocate_card_number()
             try:
                 poster.update_client(client_id, card_number=card_number)
             except poster.PosterError:
                 pass
-        else:
-            card_number = current_card
 
         fields = {
             "client_name": display_name,
@@ -349,6 +354,7 @@ async def _create_loyalty_card(
             bonus_given = True
         return client_id, card_number, bonus_given
 
+    card_number = allocate_card_number()
     client_id = poster.create_client(
         name=display_name,
         phone=phone,

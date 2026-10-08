@@ -64,7 +64,7 @@ APPLE_WALLET_SECRET = getenv("APPLE_WALLET_SECRET") or (token or "craft-wallet-s
 
 # Poster webhooks (application secret from developer cabinet; optional)
 POSTER_APP_SECRET = getenv("POSTER_APP_SECRET", "")
-CASHBACK_PERCENT = float(getenv("CASHBACK_PERCENT", "5"))
+CASHBACK_PERCENT = float(getenv("CASHBACK_PERCENT", "1"))
 
 # Google Maps (mini app «use bonuses» block). If empty — first Poster spot.
 MAPS_URL = (getenv("MAPS_URL") or "").strip()

@@ -23,6 +23,7 @@ async def main() -> None:
     from handlers.admin_handlers.admin_management_handlers import router as admin_management_router
     from handlers.admin_handlers.links_handlers import router as links_router
     from handlers.admin_handlers.mailing_handlers import router as mailing_router
+    from handlers.admin_handlers.promo_menu_handlers import router as promo_menu_router
     from handlers.client_handlers.client_handlers import on_shutdown, on_startup
     from handlers.client_handlers.client_handlers import router as client_router
     from webapp_server import start_webapp, stop_webapp
@@ -32,6 +33,7 @@ async def main() -> None:
     dp.include_router(mailing_router)
     dp.include_router(links_router)
     dp.include_router(admin_management_router)
+    dp.include_router(promo_menu_router)
 
     async def _startup() -> None:
         await on_startup(None)
