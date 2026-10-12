@@ -13,6 +13,7 @@ from config import (
     QUEST_VISITS_REWARD_UAH,
     QUEST_WINDOW_DAYS,
     REFERRAL_BONUS_UAH,
+    SUPPORT_USERNAME,
     WELCOME_BONUS_UAH,
 )
 from database_functions.db import get_connection
@@ -48,6 +49,7 @@ def _defaults() -> dict[str, str]:
         "ach_days_15_reward_uah": str(ACH_DAYS_15_REWARD_UAH),
         "ach_days_30_reward_uah": str(ACH_DAYS_30_REWARD_UAH),
         "quest_window_days": str(QUEST_WINDOW_DAYS),
+        "support_username": SUPPORT_USERNAME,
     }
 
 
@@ -196,13 +198,46 @@ def get_quest_window_days() -> int:
         return int(QUEST_WINDOW_DAYS)
 
 
+def normalize_support_username(raw: str) -> str:
+    """Return bare Telegram username or raise ValueError."""
+    u = (raw or "").strip()
+    if u.startswith("https://t.me/"):
+        u = u.split("t.me/", 1)[-1]
+    elif u.startswith("t.me/"):
+        u = u.split("t.me/", 1)[-1]
+    u = u.split("?")[0].split("/")[0].strip().lstrip("@")
+    if not u or len(u) < 5 or len(u) > 32:
+        raise ValueError("username length")
+    if not all(c.isalnum() or c == "_" for c in u):
+        raise ValueError("username chars")
+    return u
+
+
+def get_support_username() -> str:
+    raw = get_setting("support_username", SUPPORT_USERNAME)
+    try:
+        return normalize_support_username(raw)
+    except ValueError:
+        return SUPPORT_USERNAME
+
+
+def set_support_username(username: str) -> str:
+    clean = normalize_support_username(username)
+    set_setting("support_username", clean)
+    return clean
+
+
+def get_support_url() -> str:
+    return f"https://t.me/{get_support_username()}"
+
+
 def set_reward_uah(key: str, amount: float) -> None:
     if key not in REWARD_SETTING_KEYS and key != "cashback_percent":
         raise ValueError(f"unknown reward key: {key}")
     set_setting(key, f"{float(amount):g}")
 
 
-def rewards_snapshot() -> dict[str, float]:
+def rewards_snapshot() -> dict:
     return {
         "welcome_bonus_uah": get_welcome_bonus_uah(),
         "birthday_bonus_uah": get_birthday_bonus_uah(),
@@ -216,6 +251,7 @@ def rewards_snapshot() -> dict[str, float]:
         "ach_days_30_reward_uah": get_ach_days_30_reward_uah(),
         "quest_window_days": float(get_quest_window_days()),
         "cashback_percent": get_cashback_percent(),
+        "support_username": get_support_username(),
     }
 
 

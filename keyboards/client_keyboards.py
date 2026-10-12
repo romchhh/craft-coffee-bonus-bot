@@ -74,8 +74,18 @@ def get_open_card_inline():
 
 
 def get_manager_keyboard():
+    from database_functions.settings_db import get_support_url, get_support_username
+
+    username = get_support_username()
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Написати", url="https://t.me/manager")]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"Написати @{username}",
+                    url=get_support_url(),
+                )
+            ]
+        ]
     )
 
 

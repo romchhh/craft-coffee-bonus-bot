@@ -112,9 +112,13 @@ def get_faq_text() -> str:
 
 
 def get_manager_text() -> str:
+    from database_functions.settings_db import get_support_username
+
+    username = get_support_username()
     return (
         "<b>Підтримка Craft Coffee</b>\n\n"
-        "Напиши нам, якщо є питання щодо картки чи балансу."
+        "Напиши нам, якщо є питання щодо картки чи балансу.\n"
+        f"Контакт: <b>@{username}</b>"
     )
 
 

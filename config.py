@@ -47,6 +47,9 @@ ACH_DAYS_15_REWARD_UAH = float(getenv("ACH_DAYS_15_REWARD_UAH", "20"))
 ACH_DAYS_30_REWARD_UAH = float(getenv("ACH_DAYS_30_REWARD_UAH", "30"))
 QUEST_WINDOW_DAYS = int(getenv("QUEST_WINDOW_DAYS", "14"))
 
+# Telegram username for client support (editable in admin → Лояльність)
+SUPPORT_USERNAME = (getenv("SUPPORT_USERNAME") or "Oleksandr_Hniezdilov").strip().lstrip("@")
+
 WEBAPP_URL = (getenv("WEBAPP_URL") or "").rstrip("/")
 WEBAPP_HOST = getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(getenv("WEBAPP_PORT", "8080"))

@@ -31,6 +31,15 @@ CERTS_DIR = Path("certs")
 ASSETS_DIR = Path("webapp/wallet_assets")
 
 
+def _support_label() -> str:
+    try:
+        from database_functions.settings_db import get_support_username
+
+        return f"@{get_support_username()}"
+    except Exception:
+        return WEBAPP_URL or "Craft Coffee"
+
+
 class AppleWalletError(Exception):
     pass
 
@@ -184,7 +193,7 @@ def build_pass_json(
                 {
                     "key": "support",
                     "label": "Підтримка",
-                    "value": WEBAPP_URL or "Craft Coffee",
+                    "value": _support_label(),
                 },
             ],
         },

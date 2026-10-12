@@ -15,9 +15,11 @@ from utils.admin_functions import generate_database_export, format_statistics_me
 from database_functions.settings_db import (
     REWARD_SETTING_KEYS,
     get_cashback_percent,
+    get_support_username,
     rewards_snapshot,
     set_cashback_percent,
     set_reward_uah,
+    set_support_username,
     set_welcome_bonus_uah,
 )
 from states.admin_states import LoyaltySettings
@@ -59,6 +61,7 @@ def _loyalty_text() -> str:
         f"• 15 днів: <b>{s['ach_days_15_reward_uah']:g} грн</b>\n"
         f"• 30 днів: <b>{s['ach_days_30_reward_uah']:g} грн</b>\n\n"
         f"Вікно квестів: <b>{int(s['quest_window_days'])} днів</b> від реєстрації.\n"
+        f"💬 Підтримка: <b>@{s.get('support_username') or get_support_username()}</b>\n\n"
         "Кешбек і прогрес квестів — при закритті чека в Poster."
     )
 
@@ -133,6 +136,46 @@ async def loyalty_edit_cashback(callback: types.CallbackQuery, state: FSMContext
         parse_mode="HTML",
     )
     await callback.answer()
+
+
+@router.callback_query(IsAdmin(), F.data == "loyalty_edit_support")
+async def loyalty_edit_support(callback: types.CallbackQuery, state: FSMContext):
+    current = get_support_username()
+    await state.set_state(LoyaltySettings.support_username)
+    await callback.message.answer(
+        f"Введи Telegram-юзернейм підтримки (зараз <b>@{current}</b>).\n"
+        "Можна з <code>@</code> або без, наприклад:\n"
+        "<code>@Oleksandr_Hniezdilov</code>\n"
+        "або <code>https://t.me/Oleksandr_Hniezdilov</code>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(IsAdmin(), LoyaltySettings.support_username)
+async def loyalty_save_support(message: types.Message, state: FSMContext):
+    raw = (message.text or "").strip()
+    try:
+        username = set_support_username(raw)
+    except ValueError:
+        await message.answer(
+            "Некоректний юзернейм. Лише латиниця, цифри й `_`, довжина 5–32.\n"
+            "Приклад: <code>Oleksandr_Hniezdilov</code>",
+            parse_mode="HTML",
+        )
+        return
+    await state.clear()
+    await message.answer(
+        f"✅ Контакт підтримки: <b>@{username}</b>\n"
+        f"Клієнти писатимуть сюди: https://t.me/{username}",
+        parse_mode="HTML",
+        reply_markup=admin_keyboard(),
+    )
+    await message.answer(
+        _loyalty_text(),
+        parse_mode="HTML",
+        reply_markup=get_loyalty_settings_keyboard(),
+    )
 
 
 @router.message(IsAdmin(), LoyaltySettings.edit_reward)
