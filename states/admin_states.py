@@ -34,3 +34,15 @@ class PromoMenu(StatesGroup):
     edit_price = State()
     edit_photo = State()
     edit_sort = State()
+
+
+class SpotsAdmin(StatesGroup):
+    name = State()
+    address = State()
+    maps_url = State()
+    photo = State()
+    edit_name = State()
+    edit_address = State()
+    edit_maps = State()
+    edit_photo = State()
+    edit_sort = State()

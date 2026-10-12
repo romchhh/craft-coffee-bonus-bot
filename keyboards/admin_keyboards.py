@@ -9,7 +9,7 @@ def admin_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Розсилка"), KeyboardButton(text="Статистика")],
         [KeyboardButton(text="Адміністратори"), KeyboardButton(text="Посилання")],
         [KeyboardButton(text="🎁 Лояльність"), KeyboardButton(text="👥 Реферали")],
-        [KeyboardButton(text="🍽 Меню")],
+        [KeyboardButton(text="🍽 Меню"), KeyboardButton(text="📍 Точки")],
         [KeyboardButton(text="Головне меню")],
     ]
 
