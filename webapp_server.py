@@ -92,18 +92,29 @@ async def birthday_page(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(WEBAPP_DIR / "birthday.html")
 
 
+async def privacy_page(_request: web.Request) -> web.FileResponse:
+    return web.FileResponse(WEBAPP_DIR / "privacy.html")
+
+
+async def rules_page(_request: web.Request) -> web.FileResponse:
+    return web.FileResponse(WEBAPP_DIR / "rules.html")
+
+
 async def api_meta(_request: web.Request) -> web.Response:
     """Public mini-app meta (bot link for registration)."""
     username = (BOT_USERNAME or "").strip().lstrip("@")
     bot_url = f"https://t.me/{username}" if username else None
     from Content.locations import INSTAGRAM_URL
 
+    base = (WEBAPP_URL or "").rstrip("/")
     return web.json_response(
         {
             "bot_username": username or None,
             "bot_url": bot_url,
             "start_url": f"{bot_url}?start=card" if bot_url else None,
             "instagram_url": INSTAGRAM_URL,
+            "privacy_url": f"{base}/privacy" if base else "/privacy",
+            "rules_url": f"{base}/rules" if base else "/rules",
         }
     )
 
@@ -724,6 +735,8 @@ def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/birthday", birthday_page)
+    app.router.add_get("/privacy", privacy_page)
+    app.router.add_get("/rules", rules_page)
     app.router.add_get("/api/meta", api_meta)
     app.router.add_get("/api/me", api_me)
     app.router.add_post("/api/me/birthday", api_update_birthday)

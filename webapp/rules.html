@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Правила програми · Craft Coffee</title>
+  <link rel="stylesheet" href="/static/style.css?v=31">
+  <style>
+    body { margin: 0; background: #f6f4f1; }
+    .legal-standalone { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+    .legal-standalone .legal-back { display: none; }
+  </style>
+</head>
+<body>
+  <div class="legal-standalone" id="root">
+    <p>Завантаження…</p>
+  </div>
+  <script src="/static/legal.js?v=31"></script>
+  <script>
+    document.getElementById("root").innerHTML = window.CraftLegal.rulesHtml();
+    document.querySelectorAll("[data-tab-go='privacy']").forEach((b) => {
+      b.addEventListener("click", () => { location.href = "/static/privacy.html"; });
+    });
+  </script>
+</body>
+</html>

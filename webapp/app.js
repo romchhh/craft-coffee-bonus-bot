@@ -409,8 +409,10 @@
     state.tab = tab;
     closeBarcodeModal();
     unlockAppScroll();
+    const navTabs = new Set(["card", "menu", "spots", "history"]);
     [...tabs.querySelectorAll("button")].forEach((b) => {
-      b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false");
+      const on = navTabs.has(tab) && b.dataset.tab === tab;
+      b.setAttribute("aria-current", on ? "page" : "false");
     });
     if (!appReady) return;
     if (tab === "menu" && (!state.menu || state.menu.length === 0) && !menuLoading) {
@@ -482,6 +484,7 @@
             <h4>Наступний рівень</h4>
             ${howLine}
             ${bonusLine}
+            <button type="button" class="btn-quest secondary legal-inline-btn" data-tab-go="rules">Повні правила програми</button>
           </div>
         </details>
       </div>`;
@@ -603,7 +606,22 @@
       ${renderBirthdayHome(me)}
 
       ${renderReferralHome(me)}
+
+      <div class="legal-home-links">
+        <button type="button" class="legal-home-link" data-tab-go="rules">${icon("book-open")} Правила програми</button>
+        <button type="button" class="legal-home-link" data-tab-go="privacy">${icon("shield")} Конфіденційність</button>
+      </div>
     `;
+  }
+
+  function renderRules() {
+    if (window.CraftLegal?.rulesHtml) return window.CraftLegal.rulesHtml();
+    return `<div class="empty"><p class="muted">Правила тимчасово недоступні</p></div>`;
+  }
+
+  function renderPrivacy() {
+    if (window.CraftLegal?.privacyHtml) return window.CraftLegal.privacyHtml();
+    return `<div class="empty"><p class="muted">Політика тимчасово недоступна</p></div>`;
   }
 
   function renderQuestProgressBar(q) {
@@ -1033,6 +1051,8 @@
       else if (state.tab === "spots") html = renderSpots();
       else if (state.tab === "menu") html = renderMenu();
       else if (state.tab === "history") html = renderHistory();
+      else if (state.tab === "rules") html = renderRules();
+      else if (state.tab === "privacy") html = renderPrivacy();
       else html = renderCard();
     } catch (err) {
       console.error("render", state.tab, err);
@@ -1096,6 +1116,13 @@
     if (goSpots) {
       goSpots.addEventListener("click", () => setTab("spots"));
     }
+
+    content.querySelectorAll("[data-tab-go]").forEach((btn) => {
+      btn.addEventListener("click", () => setTab(btn.getAttribute("data-tab-go")));
+    });
+    content.querySelectorAll("[data-legal-back]").forEach((btn) => {
+      btn.addEventListener("click", () => setTab("card"));
+    });
 
     const birthdayRoot = document.getElementById("profile-birthday-root");
     const saveBirthdayBtn = document.getElementById("save-birthday-btn");
