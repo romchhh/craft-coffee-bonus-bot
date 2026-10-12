@@ -28,8 +28,8 @@ import os
 router = Router()
 
 _REWARD_LABELS = {
-    "welcome_bonus_uah": "Вітальний бонус",
-    "birthday_bonus_uah": "Бонус за дату народження",
+    "welcome_bonus_uah": "Вітальні гривні",
+    "birthday_bonus_uah": "Гривні за дату народження",
     "annual_birthday_bonus_uah": "Щорічний подарунок на ДН",
     "referral_bonus_uah": "Реферал (за друга)",
     "quest_visits_reward_uah": "Квест: 3 візити",
@@ -45,7 +45,7 @@ def _loyalty_text() -> str:
     s = rewards_snapshot()
     return (
         "🎁 <b>Налаштування лояльності</b>\n\n"
-        f"☕ Вітальний бонус: <b>{s['welcome_bonus_uah']:g} грн</b>\n"
+        f"☕ Вітальні гривні: <b>{s['welcome_bonus_uah']:g} грн</b>\n"
         f"🎂 За дату народження: <b>{s['birthday_bonus_uah']:g} грн</b>\n"
         f"🎁 Щорічно на ДН: <b>{s['annual_birthday_bonus_uah']:g} грн</b>\n"
         f"👥 Реферал: <b>{s['referral_bonus_uah']:g} грн</b>\n"

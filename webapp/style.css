@@ -1620,6 +1620,26 @@ body.barcode-modal-open .surface {
   margin-top: 12px;
 }
 
+.referral-steps {
+  margin: 0 0 12px;
+  padding-left: 1.25em;
+  line-height: 1.45;
+  font-size: 13px;
+}
+
+.referral-steps li {
+  margin: 0 0 6px;
+}
+
+.referral-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.referral-steps strong {
+  color: var(--espresso);
+  font-weight: 700;
+}
+
 .quest-reward {
   display: inline-flex;
   align-items: center;

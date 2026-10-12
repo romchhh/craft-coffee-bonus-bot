@@ -445,7 +445,7 @@
       ? `<p class="muted">Щоб досягнути <strong>${how.target_percent}%</strong>, потрібно <strong>${how.need_charges}</strong> Зарядів. ${escapeHtml(how.per_check || "1 Заряд = чек від 50 грн")}.</p>`
       : `<p class="muted">Максимальний кешбек. Кожен чек від ${L.min_check_uah ?? 50} грн дає 1 Заряд.</p>`;
     const bonusLine = L.bonus_hint
-      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))} грн</strong> бонусів — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
+      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))} грн</strong> — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
       : "";
 
     const bonusBanner = bonus > 0
@@ -453,7 +453,7 @@
           <span class="loyalty-use-banner-ico">${icon("gift")}</span>
           <span class="loyalty-use-banner-text">
             <strong>${L.bonus_hint
-              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} грн бонусів`
+              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} грн`
               : `На балансі ${escapeHtml(String(Math.floor(bonus * 100) / 100))} грн — час скористатися`}</strong>
             <span class="muted">Відкрити заклади Craft Coffee</span>
           </span>
@@ -503,7 +503,7 @@
       <div class="panel birthday-home done">
         <div class="quest-card-head">
           <h3>${icon("cake")} День народження</h3>
-          ${bDone ? `<span class="quest-status">${icon("check")} Бонус отримано</span>` : ""}
+          ${bDone ? `<span class="quest-status">${icon("check")} Отримано</span>` : ""}
         </div>
         <p class="muted">${bdayDisplay ? `Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : "Дату збережено."}${bDone ? ` +${escapeHtml(String(bBonus))} грн нараховано.` : ""}</p>
       </div>`;
@@ -512,7 +512,7 @@
       <div class="panel birthday-home">
         <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
         <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
+        <p class="muted">Вкажи день народження — нарахуємо гривні одразу.</p>
         <div class="birthday-profile-picker" id="profile-birthday-root">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
@@ -521,7 +521,7 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонус</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати гривні</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
@@ -534,9 +534,7 @@
     const refLink = Q.referral_link || "";
     const canInvite = Boolean(Q.referral_can_invite);
     const minCash = Q.referral_min_cash_uah ?? 50;
-    const refHint = Q.referral_hint || (
-      `+${rBonus} грн після покупки друга від ${minCash} грн. Бонуси доступні наступного дня о 00:00.`
-    );
+    const windowDays = Q.referral_window_days ?? 30;
     const refReg = Number(Q.referrals_registered ?? 0);
     const refOk = Number(Q.referrals_successful ?? Q.referrals_count ?? 0);
     const refEarned = Number(Q.referrals_earned_uah ?? 0);
@@ -544,7 +542,12 @@
       <div class="panel referral-home">
         <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
         <h3>Приведи друга</h3>
-        <p class="muted">${escapeHtml(refHint)}</p>
+        <ol class="referral-steps muted">
+          <li>Поділись своїм посиланням</li>
+          <li>Друг реєструється за ним у боті</li>
+          <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
+          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))} грн</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
+        </ol>
         <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong></p>
         <div class="quest-actions">
           <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
@@ -590,9 +593,9 @@
       </div>
 
       <div class="panel panel-balance">
-        <div class="balance-label">${icon("gift")} Доступні бонуси</div>
+        <div class="balance-label">${icon("gift")} Доступні гривні</div>
         <div class="big">${fmtMoney(me.bonus)}</div>
-        <div class="balance-note">1 бонус = 1 грн · покажи код на касі</div>
+        <div class="balance-note">1 грн на балансі = 1 грн на касі</div>
       </div>
 
       ${renderLoyaltyCharge(me)}
@@ -625,7 +628,7 @@
     const cycleEnds = Q.cycle_ends ? ` · до ${escapeHtml(Q.cycle_ends)}` : "";
 
     let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
-      <p class="muted" style="margin-top:-6px">Завдання з бонусами${cycleEnds}</p>`;
+      <p class="muted" style="margin-top:-6px">Завдання з гривнями на баланс${cycleEnds}</p>`;
 
     const activeParts = [];
     const doneParts = [];
@@ -635,7 +638,7 @@
       <div class="quest-card">
         <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
         <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
+        <p class="muted">Вкажи день народження — нарахуємо гривні одразу.</p>
         <div class="birthday-profile-picker" id="profile-birthday-root">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
@@ -644,7 +647,7 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонус</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати гривні</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
@@ -657,16 +660,13 @@
           ${doneBadge}
         </div>
         <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
-        <p class="muted">Бонус нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
+        <p class="muted">Гривні нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
       </div>`);
     }
 
     const canInvite = Boolean(Q.referral_can_invite);
-    const refHint = Q.referral_hint || (
-      canInvite
-        ? `+${rBonus} грн після покупки друга від ${Q.referral_min_cash_uah ?? 50} грн грошима. Доступно наступного дня о 00:00.`
-        : "Посилання відкриється після твоєї першої покупки в Kraft."
-    );
+    const minCash = Q.referral_min_cash_uah ?? 50;
+    const windowDays = Q.referral_window_days ?? 30;
     const refReg = Number(Q.referrals_registered ?? 0);
     const refOk = Number(Q.referrals_successful ?? refCount);
     const refEarned = Number(Q.referrals_earned_uah ?? 0);
@@ -675,11 +675,16 @@
       <div class="quest-card">
         <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
         <h3>Приведи друга</h3>
-        <p class="muted">${escapeHtml(refHint)}</p>
+        <ol class="referral-steps muted">
+          <li>Поділись своїм посиланням</li>
+          <li>Друг реєструється за ним у боті</li>
+          <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
+          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))} грн</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
+        </ol>
         <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
         <div class="quest-actions">
-          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink ? "" : "disabled"}>${canInvite ? "Скопіювати" : "Спочатку покупка"}</button>
-          <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink ? "" : "disabled"}>Поділитись</button>
+          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
+          <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
         </div>
       </div>`);
 
@@ -980,7 +985,7 @@
   function renderHistory() {
     const hist = state.history || { purchases: [], bonuses: [] };
     let html = `<div class="section-title"><div class="title-ico">${icon("history")}</div><h2>Історія</h2></div>
-      <p class="muted" style="margin-top:-6px">Покупки та бонуси в одному списку</p>`;
+      <p class="muted" style="margin-top:-6px">Покупки та нарахування в одному списку</p>`;
 
     const blocks = [];
     for (const row of buildHistoryTimeline(hist)) {
@@ -1144,7 +1149,7 @@
     const shareRef = document.getElementById("share-referral-link");
     if (shareRef && refLink) {
       shareRef.addEventListener("click", () => {
-        const text = "Оформи картку Craft Coffee — бонуси за каву ☕";
+        const text = "Оформи картку Craft Coffee — гривні на баланс за каву ☕";
         if (navigator.share) {
           navigator.share({ title: "Craft Coffee", text, url: refLink }).catch(() => {});
         } else if (tg?.openTelegramLink) {

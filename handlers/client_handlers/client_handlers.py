@@ -16,6 +16,7 @@ from keyboards.client_keyboards import (
     get_phone_keyboard,
     get_open_card_inline,
     get_manager_keyboard,
+    get_mailing_prefs_keyboard,
     get_about_keyboard,
     set_webapp_menu,
 )
@@ -29,6 +30,7 @@ from Content.texts import (
     get_about_text,
     get_faq_text,
     get_manager_text,
+    get_mailing_prefs_text,
 )
 from database_functions.client_db import (
     check_user,
@@ -37,6 +39,8 @@ from database_functions.client_db import (
     is_registered,
     get_user,
     save_registration,
+    is_mailing_opted_out,
+    set_mailing_opt_out,
 )
 from database_functions.create_dbs import create_dbs
 from database_functions.links_db import increment_link_count
@@ -302,7 +306,7 @@ async def _send_registration_success(
             log.info("could not pin registration message: %s", exc)
 
     await message.answer(
-        "Меню бота знизу — картка, бонуси та підтримка.",
+        "Меню бота знизу — картка, гривні та підтримка.",
         reply_markup=get_start_keyboard(message.from_user.id, registered=True),
     )
 
@@ -400,7 +404,7 @@ async def about(message: types.Message):
     )
 
 
-@router.message(F.text == "🎁 Бонуси")
+@router.message(F.text.in_(["🎁 Гривні", "🎁 Бонуси"]))
 async def bonuses_info(message: types.Message):
     await _ensure_user(message)
     if not is_registered(message.from_user.id):
@@ -429,6 +433,77 @@ async def support(message: types.Message):
         parse_mode="HTML",
         reply_markup=get_manager_keyboard(),
     )
+
+
+async def _show_mailing_prefs(message: types.Message) -> None:
+    opted_out = is_mailing_opted_out(message.from_user.id)
+    await message.answer(
+        get_mailing_prefs_text(opted_out=opted_out),
+        parse_mode="HTML",
+        reply_markup=get_mailing_prefs_keyboard(opted_out=opted_out),
+    )
+
+
+@router.message(F.text.in_(["🔔 Розсилка"]))
+@router.message(Command("mailing", "unsubscribe", "subscribe"))
+async def mailing_prefs(message: types.Message):
+    await _ensure_user(message)
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
+    cmd = (message.text or "").strip().lower()
+    if cmd.startswith("/unsubscribe"):
+        set_mailing_opt_out(message.from_user.id, True)
+    elif cmd.startswith("/subscribe"):
+        set_mailing_opt_out(message.from_user.id, False)
+    await _show_mailing_prefs(message)
+
+
+def _ensure_user_from_tg(user: types.User) -> None:
+    if not check_user(user.id):
+        add_user(
+            user.id,
+            user.username,
+            user.first_name,
+            user.last_name,
+            user.language_code or "uk",
+        )
+    else:
+        update_user_activity(user.id)
+
+
+@router.callback_query(F.data == "mailing_opt_out")
+async def mailing_opt_out_cb(callback: types.CallbackQuery):
+    _ensure_user_from_tg(callback.from_user)
+    set_mailing_opt_out(callback.from_user.id, True)
+    await callback.answer("Відписано від розсилки", show_alert=True)
+    try:
+        await callback.message.answer(
+            get_mailing_prefs_text(opted_out=True),
+            parse_mode="HTML",
+            reply_markup=get_mailing_prefs_keyboard(opted_out=True),
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "mailing_opt_in")
+async def mailing_opt_in_cb(callback: types.CallbackQuery):
+    _ensure_user_from_tg(callback.from_user)
+    set_mailing_opt_out(callback.from_user.id, False)
+    await callback.answer("Підписку увімкнено", show_alert=True)
+    try:
+        await callback.message.edit_text(
+            get_mailing_prefs_text(opted_out=False),
+            parse_mode="HTML",
+            reply_markup=get_mailing_prefs_keyboard(opted_out=False),
+        )
+    except Exception:
+        await callback.message.answer(
+            get_mailing_prefs_text(opted_out=False),
+            parse_mode="HTML",
+            reply_markup=get_mailing_prefs_keyboard(opted_out=False),
+        )
 
 
 @router.message(F.web_app_data)

@@ -167,7 +167,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
             elif reward > 0:
                 text = (
                     f"🎯 <b>{title}</b>\n\n"
-                    f"Нараховано <b>+{reward:g} грн</b> бонусів."
+                    f"Нараховано <b>+{reward:g} грн</b>."
                 )
             else:
                 continue
@@ -217,11 +217,11 @@ async def _send_thanks(
     if bonus_uah > 0:
         balance_line = ""
         if balance_uah is not None:
-            balance_line = f"\nЗагальний баланс: <b>{balance_uah:g} грн</b> бонусів."
+            balance_line = f"\nЗагальний баланс: <b>{balance_uah:g} грн</b>."
         text = (
             f"☕ Дякуємо за замовлення{who}!\n\n"
             f"Сума покупки: <b>{payed_sum_uah:g} грн</b>\n"
-            f"Нараховано кешбек {percent:g}%: <b>+{bonus_uah:g} грн</b> бонусів."
+            f"Нараховано кешбек {percent:g}%: <b>+{bonus_uah:g} грн</b>."
             f"{balance_line}"
             f"{mini_line}\n\n"
             "Гарного дня від Craft Coffee 🤎"

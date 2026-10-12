@@ -15,9 +15,16 @@ def get_users_count():
     return count
 
 def get_all_user_ids():
-    cursor.execute('SELECT user_id FROM users')
+    cursor.execute("SELECT user_id FROM users")
     user_ids = [row[0] for row in cursor.fetchall()]
     return user_ids
+
+
+def get_mailing_recipient_ids():
+    """Recipients for admin broadcasts (excludes mailing opt-out)."""
+    from database_functions.client_db import get_mailing_recipient_ids as _recipients
+
+    return _recipients()
 
 
 def get_all_users_data():

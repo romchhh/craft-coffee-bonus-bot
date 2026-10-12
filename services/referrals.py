@@ -405,8 +405,10 @@ def referral_ui_payload(user_id: int) -> dict[str, Any]:
         "referrals_earned_uah": float(stats["earned_uah"]),
         "referrals_owner_review": int(stats["owner_review"]),
         "referral_hint": (
-            f"+{amount:g} грн після покупки друга від {min_cash:g} грн грошима "
-            f"(протягом {window} днів). "
-            "Бонуси стають доступні наступного дня о 00:00 за Києвом."
+            f"1) Поділись посиланням. "
+            f"2) Друг реєструється за ним. "
+            f"3) Друг робить покупку від {min_cash:g} грн (протягом {window} днів). "
+            f"4) Тобі +{amount:g} грн — на баланс наступного дня о 00:00 (Київ)."
         ),
+        "referral_window_days": window,
     }

@@ -413,7 +413,7 @@ def format_statistics_message():
     reg_pct = (reg / stats["total_users"] * 100) if stats["total_users"] > 0 else 0
     poster_line = (
         f"• На балансах у Poster зараз: <b>{_uah(poster_bal['outstanding_bonus_uah'])} грн</b> "
-        f"({poster_bal['clients_with_bonus_balance']} клієнтів з бонусами)"
+        f"({poster_bal['clients_with_bonus_balance']} клієнтів з балансом)"
     )
     if poster_bal["poster_errors"]:
         poster_line += f"\n   ⚠️ Не вдалося оновити {poster_bal['poster_errors']} карток"
@@ -430,10 +430,10 @@ def format_statistics_message():
 • Повертаються (≥2 покупки): <b>{loyalty['returning_clients']}</b> — <b>{loyalty['return_rate_percent']:.1f}%</b> від покупців
 • Чеків загалом: <b>{loyalty['purchases_total']}</b> на <b>{_uah(loyalty['payed_total_uah'])} грн</b>
 
-<b>🎁 БОНУСИ</b>
+<b>🎁 ГРИВНІ НА БАЛАНСІ</b>
 • Нараховано кешбеку (бот): <b>{_uah(loyalty['cashback_accrued_uah'])} грн</b>
-• Списано бонусів у чеках: <b>{_uah(loyalty['bonus_spent_uah'])} грн</b>
-• Вітальні бонуси: <b>{loyalty['welcome_count']}</b> видач (~<b>{_uah(loyalty['welcome_total_est_uah'])} грн</b> за поточним тарифом)
+• Списано в чеках: <b>{_uah(loyalty['bonus_spent_uah'])} грн</b>
+• Вітальні: <b>{loyalty['welcome_count']}</b> видач (~<b>{_uah(loyalty['welcome_total_est_uah'])} грн</b> за поточним тарифом)
 {poster_line}
 
 <b>🛒 ПОКУПКИ (клієнти бота)</b>

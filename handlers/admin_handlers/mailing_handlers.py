@@ -7,7 +7,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 from keyboards.admin_keyboards import get_broadcast_keyboard, create_post, publish_post, post_keyboard, back_mailing_keyboard, confirm_mailing
 from utils.admin_functions import parse_url_buttons, format_message_text
 from Content.texts import mailing_text
-from database_functions.admin_db import get_all_user_ids
+from database_functions.admin_db import get_mailing_recipient_ids
+from database_functions.client_db import count_mailing_opted_out
 from states.admin_states import Mailing
 import asyncio
 
@@ -237,13 +238,26 @@ async def handle_url_buttons(callback_query: types.CallbackQuery, state: FSMCont
     
 @router.callback_query(F.data.startswith('publish_'))
 async def confirm_publish(callback_query: types.CallbackQuery, state: FSMContext):
-    await callback_query.message.edit_text("Ви впевнені, що хочете зробити розсилку?", reply_markup=confirm_mailing())
+    recipients = len(get_mailing_recipient_ids())
+    opted_out = count_mailing_opted_out()
+    await callback_query.message.edit_text(
+        "Ви впевнені, що хочете зробити розсилку?\n\n"
+        f"Отримають: <b>{recipients}</b>\n"
+        f"Відписані (пропустяться): <b>{opted_out}</b>",
+        parse_mode="HTML",
+        reply_markup=confirm_mailing(),
+    )
 
 
 @router.callback_query(F.data.startswith('confirm_publish_'))
 async def handle_publish_confirmation(callback_query: types.CallbackQuery, state: FSMContext):
     user_id = callback_query.from_user.id
-    await callback_query.message.edit_text("Починаю розсилку...", reply_markup=None)
+    opted_out = count_mailing_opted_out()
+    await callback_query.message.edit_text(
+        "Починаю розсилку"
+        + (f" (пропускаємо {opted_out} відписаних)…" if opted_out else "…"),
+        reply_markup=None,
+    )
     initialize_user_data(user_id)
 
     media_info = user_data[user_id].get('media')
@@ -253,7 +267,8 @@ async def handle_publish_confirmation(callback_query: types.CallbackQuery, state
 
     bell = user_data[user_id].get('bell', 0) 
     disable_notification = (bell == 0)
-    user_ids = get_all_user_ids()
+    # Promotional broadcast — never send to users who opted out
+    user_ids = get_mailing_recipient_ids()
 
     sent_count = 0
     for recipient_id in user_ids: 
@@ -272,7 +287,10 @@ async def handle_publish_confirmation(callback_query: types.CallbackQuery, state
             print(f"Failed to send message to user {recipient_id}: {e}")
         await asyncio.sleep(2)
 
-    await callback_query.message.answer(f"Пост опубліковано для {sent_count} користувачів!")
+    skip_note = f" · відписаних пропущено: {opted_out}" if opted_out else ""
+    await callback_query.message.answer(
+        f"Пост опубліковано для {sent_count} користувачів!{skip_note}"
+    )
 
 
 @router.callback_query(F.data == "back_to",)

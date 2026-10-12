@@ -51,6 +51,8 @@ def _migrate():
         "referral_bonus_paid": "INTEGER DEFAULT 0",
         "annual_birthday_year": "INTEGER",
         "referral_click_at": "TEXT",
+        # 0 = receives admin broadcasts; 1 = opted out of promotional mailing
+        "mailing_opt_out": "INTEGER DEFAULT 0",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -296,3 +298,35 @@ def get_username_by_user_id(user_id: str):
     cursor.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     return result[0] if result else None
+
+
+def is_mailing_opted_out(user_id: int | str) -> bool:
+    user = get_user(user_id)
+    return bool(user and int(user.get("mailing_opt_out") or 0) == 1)
+
+
+def set_mailing_opt_out(user_id: int | str, opted_out: bool) -> None:
+    cursor.execute(
+        "UPDATE users SET mailing_opt_out = ?, last_activity = ? WHERE user_id = ?",
+        (1 if opted_out else 0, kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
+def count_mailing_opted_out() -> int:
+    row = cursor.execute(
+        "SELECT COUNT(*) FROM users WHERE COALESCE(mailing_opt_out, 0) = 1"
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def get_mailing_recipient_ids() -> list[int]:
+    """Users who still accept promotional bot broadcasts."""
+    rows = cursor.execute(
+        """
+        SELECT user_id FROM users
+        WHERE COALESCE(mailing_opt_out, 0) = 0
+          AND user_id IS NOT NULL
+        """
+    ).fetchall()
+    return [int(r[0]) for r in rows if r[0] is not None]

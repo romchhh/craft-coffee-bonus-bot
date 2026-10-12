@@ -222,7 +222,7 @@ async def api_update_birthday(request: web.Request) -> web.Response:
             bonus_added = grant_birthday_bonus(int(tg_user["id"]), client_id)
         except Exception:
             raise web.HTTPBadGateway(
-                text=json.dumps({"error": "Дату зберегли, але бонус нарахувати не вдалося. Спробуй пізніше"}),
+                text=json.dumps({"error": "Дату зберегли, але гривні нарахувати не вдалося. Спробуй пізніше"}),
                 content_type="application/json",
             )
     if client_id:
@@ -545,7 +545,7 @@ async def api_history(request: web.Request) -> web.Response:
         bonuses.append(
             {
                 "date": (db_user.get("join_date") or "")[:19] or kyiv_now_str(),
-                "title": "Вітальні бонуси за реєстрацію",
+                "title": "Вітальні гривні за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
             }
         )
@@ -555,7 +555,7 @@ async def api_history(request: web.Request) -> web.Response:
         bonuses.append(
             {
                 "date": (db_user.get("last_activity") or "")[:19] or kyiv_now_str(),
-                "title": "Бонус за день народження",
+                "title": "Гривні за день народження",
                 "amount": get_birthday_bonus_uah(),
             }
         )
