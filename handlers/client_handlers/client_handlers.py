@@ -323,25 +323,23 @@ async def _create_loyalty_card(
     card_number is an 8-digit code we generate and store in Poster as the
     bonus card number (same digits shown under the barcode in Mini App).
     """
-    from database_functions.charge_db import allocate_card_number
+    from database_functions.charge_db import allocate_card_number, is_valid_card_number
 
     existing = poster.find_client_by_phone(phone)
 
     if existing:
         client_id = int(existing["client_id"])
         current_card = (existing.get("card_number") or "").strip()
-        if current_card:
+        if is_valid_card_number(current_card):
             card_number = current_card
         else:
+            # Reject legacy test codes / EAN-13 — always 8 random digits.
             card_number = allocate_card_number()
-            try:
-                poster.update_client(client_id, card_number=card_number)
-            except poster.PosterError:
-                pass
 
         fields = {
             "client_name": display_name,
             "client_groups_id_client": poster.client_group_id(),
+            "card_number": card_number,
         }
         if birthday:
             fields["birthday"] = birthday

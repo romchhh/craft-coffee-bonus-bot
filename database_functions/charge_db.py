@@ -87,6 +87,12 @@ def _normalize_starting_tiers() -> None:
     conn.commit()
 
 
+def is_valid_card_number(value: str | None) -> bool:
+    """Poster/display card: exactly 8 digits."""
+    s = str(value or "").strip()
+    return len(s) == 8 and s.isdigit()
+
+
 def _used_card_numbers() -> set[str]:
     """All Poster/display card numbers already taken in our DB."""
     used: set[str] = set()
@@ -102,7 +108,7 @@ def _used_card_numbers() -> set[str]:
 
 
 def _ensure_short_ids() -> None:
-    """Keep card_short_id identical to Poster card_number (no separate code)."""
+    """Keep card_short_id identical to Poster card_number (8 digits)."""
     rows = cursor.execute(
         "SELECT user_id, card_number, card_short_id FROM users WHERE registered = 1"
     ).fetchall()
@@ -110,15 +116,14 @@ def _ensure_short_ids() -> None:
     for row in rows:
         card = str(row["card_number"] or "").strip()
         short = str(row["card_short_id"] or "").strip()
-        if card:
+        if is_valid_card_number(card):
             if short != card:
                 cursor.execute(
                     "UPDATE users SET card_short_id = ? WHERE user_id = ?",
                     (card, row["user_id"]),
                 )
             continue
-        if short:
-            continue
+        # Missing or invalid (legacy test / EAN-13) — allocate a fresh 8-digit code.
         code = _next_free_card_number(used)
         used.add(code)
         cursor.execute(
@@ -132,7 +137,11 @@ def _next_free_card_number(used: set[str] | None = None) -> str:
     """Allocate an 8-digit Poster card number with a unique last-4 suffix."""
     if used is None:
         used = _used_card_numbers()
-    used_tails = {str(s)[-4:].zfill(4) for s in used if str(s).isdigit() and len(str(s)) >= 4}
+    used_tails = {
+        str(s)[-4:].zfill(4)
+        for s in used
+        if str(s).isdigit() and len(str(s)) >= 4
+    }
     tails = list(range(1000, 10000))
     random.shuffle(tails)
     for tail_n in tails:
