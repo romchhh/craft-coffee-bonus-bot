@@ -55,9 +55,11 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     if client_id <= 0:
         return {"status": "skip", "reason": "no_client"}
 
+    spot_id = poster.transaction_spot_id(tx)
+
     user = get_user_by_poster_client_id(client_id)
     if not user:
-        # Poster client not linked to this bot — ignore
+        # Poster client not linked to this bot — ignore (any spot)
         mark_transaction_processed(
             tid,
             poster_client_id=client_id,
@@ -66,12 +68,20 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
             bonus_uah=0,
             bonus_spent_uah=poster.from_minor(tx.get("payed_bonus") or 0),
         )
-        return {"status": "skip", "reason": "client_not_in_bot"}
+        return {"status": "skip", "reason": "client_not_in_bot", "spot_id": spot_id}
 
     payed_sum_uah = poster.from_minor(tx.get("payed_sum"))  # cash + card
     bonus_spent_uah = poster.from_minor(tx.get("payed_bonus") or 0)
     percent = get_cashback_percent_for_user(int(user["user_id"]))
     bonus_uah = _round_bonus(payed_sum_uah * percent / 100.0)
+    log.info(
+        "loyalty tx=%s client_id=%s spot_id=%s payed=%.2f user=%s",
+        tid,
+        client_id,
+        spot_id,
+        payed_sum_uah,
+        user["user_id"],
+    )
 
     closed_raw = tx.get("date_close_date") or tx.get("date_close") or ""
     closed_at = None
@@ -187,6 +197,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         "status": "ok",
         "transaction_id": tid,
         "client_id": client_id,
+        "spot_id": spot_id,
         "telegram_user_id": int(user["user_id"]),
         "payed_sum_uah": payed_sum_uah,
         "bonus_uah": bonus_uah,

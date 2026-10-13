@@ -131,7 +131,7 @@ def resolve_client_group_id_by_name(name: str) -> int | None:
 
 
 def init_client_group() -> int:
-    """Resolve client group (Bonusi2) on bot startup."""
+    """Resolve loyalty client group («Бонуси») on bot startup."""
     global _active_client_group_id
     resolved = resolve_client_group_id_by_name(POSTER_CLIENT_GROUP_NAME)
     if resolved is not None:
@@ -200,6 +200,20 @@ def get_spots() -> list[dict]:
     return get_cached("spots", lambda: call("access.getSpots") or [])
 
 
+def get_spot_ids() -> list[int]:
+    """All Poster spot_id values (one client can buy at any of them)."""
+    ids: list[int] = []
+    for s in get_spots():
+        raw = s.get("spot_id") or s.get("id")
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sid > 0:
+            ids.append(sid)
+    return sorted(set(ids))
+
+
 def get_categories() -> list[dict]:
     return get_cached("categories", lambda: call("menu.getCategories") or [])
 
@@ -227,7 +241,15 @@ def get_products(spot_id: int | None = None) -> list[dict]:
 
 
 def get_client(client_id: int | str) -> dict | None:
-    result = call("clients.getClient", params={"client_id": client_id})
+    try:
+        result = call("clients.getClient", params={"client_id": client_id})
+    except PosterError as exc:
+        # Unknown / deleted client on this account
+        payload = exc.payload if isinstance(exc.payload, dict) else {}
+        err = payload.get("error")
+        if err in (32, 34) or "undefined" in str(payload).lower() or "empty" in str(payload).lower():
+            return None
+        raise
     if isinstance(result, list):
         return result[0] if result else None
     if isinstance(result, dict):
@@ -241,14 +263,23 @@ def get_client_bonus_uah(client_id: int | str) -> float:
     return from_minor(client.get("bonus"))
 
 
-def get_clients() -> list[dict]:
-    return call("clients.getClients") or []
+def get_clients(*, phone: str | None = None) -> list[dict]:
+    params: dict[str, Any] = {}
+    if phone:
+        # Poster accepts local / intl forms; pass digits and +digits.
+        digits = re.sub(r"\D", "", phone)
+        params["phone"] = digits or phone
+    return call("clients.getClients", params=params or None) or []
 
 
 def find_client_by_phone(phone: str) -> dict | None:
     want = phone_digits(phone)
     tail = want[-9:]
-    for c in get_clients():
+    # Prefer server-side phone filter (full client base can be huge / incomplete without it).
+    candidates = get_clients(phone=want) or get_clients(phone=tail) or []
+    if not candidates:
+        candidates = get_clients()
+    for c in candidates:
         raw = c.get("phone_number") or c.get("phone") or ""
         digits = re.sub(r"\D", "", str(raw))
         if digits == want or digits.endswith(tail):
@@ -262,7 +293,8 @@ def find_clients_by_phone_suffix(suffix: str) -> list[dict]:
     if len(digits) < 4:
         return []
     matches: list[dict] = []
-    for c in get_clients():
+    candidates = get_clients(phone=digits) or get_clients()
+    for c in candidates:
         raw = c.get("phone_number") or c.get("phone") or ""
         phone = re.sub(r"\D", "", str(raw))
         if phone.endswith(digits):
@@ -355,21 +387,62 @@ def get_transaction(transaction_id: int | str) -> dict | None:
     return None
 
 
-def get_closed_transactions(days: int = 2, spot_id: int | None = None) -> list[dict]:
-    """All closed receipts for the last `days` days."""
-    from datetime import datetime, timedelta
-
-    date_to = datetime.now()
-    date_from = date_to - timedelta(days=max(1, int(days)))
-    params = {
-        "dateFrom": date_from.strftime("%Y%m%d"),
-        "dateTo": date_to.strftime("%Y%m%d"),
+def _fetch_transactions_range(
+    *,
+    date_from: str,
+    date_to: str,
+    spot_id: int | None = None,
+) -> list[dict]:
+    params: dict[str, Any] = {
+        "dateFrom": date_from,
+        "dateTo": date_to,
         "include_products": "false",
     }
     if spot_id is not None:
         params["spot_id"] = int(spot_id)
-    items = call("dash.getTransactions", params=params) or []
-    return [t for t in items if is_transaction_closed(t)]
+    return call("dash.getTransactions", params=params) or []
+
+
+def get_closed_transactions(days: int = 2, spot_id: int | None = None) -> list[dict]:
+    """Closed receipts for the last `days` days.
+
+    When spot_id is omitted, loads every Poster spot and merges by transaction_id.
+    One loyalty client can pay at any venue — do not filter by a single spot.
+    """
+    from datetime import datetime, timedelta
+
+    date_to = datetime.now()
+    date_from = date_to - timedelta(days=max(1, int(days)))
+    df = date_from.strftime("%Y%m%d")
+    dt = date_to.strftime("%Y%m%d")
+
+    if spot_id is not None:
+        items = _fetch_transactions_range(date_from=df, date_to=dt, spot_id=int(spot_id))
+        return [t for t in items if is_transaction_closed(t)]
+
+    by_id: dict[str, dict] = {}
+    spot_ids = get_spot_ids()
+    if not spot_ids:
+        # Fallback: account-wide call (covers accounts where spots list is empty)
+        for t in _fetch_transactions_range(date_from=df, date_to=dt):
+            tid = transaction_id_from_row(t)
+            if tid and is_transaction_closed(t):
+                by_id[tid] = t
+        return list(by_id.values())
+
+    for sid in spot_ids:
+        try:
+            rows = _fetch_transactions_range(date_from=df, date_to=dt, spot_id=sid)
+        except Exception:
+            log.exception("get_closed_transactions spot_id=%s failed", sid)
+            continue
+        for t in rows:
+            if not is_transaction_closed(t):
+                continue
+            tid = transaction_id_from_row(t)
+            if tid:
+                by_id[tid] = t
+    return list(by_id.values())
 
 
 def transaction_id_from_row(tx: dict) -> str | None:
@@ -379,8 +452,19 @@ def transaction_id_from_row(tx: dict) -> str | None:
     return str(raw)
 
 
+def transaction_spot_id(tx: dict | None) -> int | None:
+    if not tx:
+        return None
+    raw = tx.get("spot_id")
+    try:
+        sid = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return sid if sid > 0 else None
+
+
 def get_transactions_for_client(client_id: int | str, days: int = 90) -> list[dict]:
-    """Closed receipts for a client over the last `days` days."""
+    """Closed receipts for a client over the last `days` days (any spot)."""
     cid = str(client_id)
     return [t for t in get_closed_transactions(days=days) if str(t.get("client_id") or "") == cid]
 

@@ -23,9 +23,9 @@ def _parse_administrators() -> list[int]:
 administrators = _parse_administrators()
 
 POSTER_TOKEN = getenv("POSTER_TOKEN", "")
-# Poster: client group «Bonuses2» / Bonusi2 (loyalty), cabinet id = 2
-POSTER_CLIENT_GROUP_NAME = "Бонуси2"
-POSTER_CLIENT_GROUP_ID = 2
+# Poster loyalty group (bonus system, 0%). Account 965187 → «Бонуси Телеграм бот» id=10
+POSTER_CLIENT_GROUP_NAME = (getenv("POSTER_CLIENT_GROUP_NAME") or "Бонуси Телеграм бот").strip()
+POSTER_CLIENT_GROUP_ID = int(getenv("POSTER_CLIENT_GROUP_ID", "10") or "10")
 # Receipt/menu amounts in Poster are minor units (100 = 1 UAH). Not for client bonus field.
 POSTER_MONEY_MULT = int(getenv("POSTER_BONUS_MULT", "100"))
 WELCOME_BONUS_UAH = float(getenv("WELCOME_BONUS_UAH", "50"))

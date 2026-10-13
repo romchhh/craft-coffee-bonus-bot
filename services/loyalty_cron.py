@@ -99,10 +99,12 @@ async def scan_closed_transactions(
         report["bot_client_receipts"] += 1
         report["pending"].append(tid)
         payed = poster.from_minor(tx.get("payed_sum"))
+        spot_id = poster.transaction_spot_id(tx)
         log.info(
-            "loyalty cron: новий чек клієнта бота tx=%s client_id=%s payed=%.2f грн",
+            "loyalty cron: новий чек клієнта бота tx=%s client_id=%s spot_id=%s payed=%.2f грн",
             tid,
             cid,
+            spot_id,
             payed,
         )
         if dry_run:
