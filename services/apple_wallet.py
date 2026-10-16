@@ -161,7 +161,7 @@ def build_pass_json(
                 {
                     "key": "bonus",
                     "label": "БОНУСИ",
-                    "value": f"{bonus:g} грн",
+                    "value": f"{bonus:g}",
                 }
             ],
             "primaryFields": [],
@@ -188,7 +188,7 @@ def build_pass_json(
                 {
                     "key": "info",
                     "label": "Про програму",
-                    "value": "1 грн на балансі = 1 грн на касі. Покажи штрихкод у Craft Coffee.",
+                    "value": "1 бонус на касі = 1 грн. Покажи штрихкод у Craft Coffee.",
                 },
                 {
                     "key": "support",

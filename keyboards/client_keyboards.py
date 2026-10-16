@@ -54,7 +54,7 @@ def get_start_keyboard(user_id: int, registered: bool | None = None):
 
     keyboard = [
         [KeyboardButton(text="🪪 Моя картка")],
-        [KeyboardButton(text="☕ Про Craft Coffee"), KeyboardButton(text="🎁 Гривні")],
+        [KeyboardButton(text="☕ Про Craft Coffee"), KeyboardButton(text="🎁 Бонуси")],
         [KeyboardButton(text="💬 Підтримка"), KeyboardButton(text="🔔 Розсилка")],
     ]
     if user_id in all_admins:

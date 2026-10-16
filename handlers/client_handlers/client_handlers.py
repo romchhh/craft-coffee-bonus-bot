@@ -306,7 +306,7 @@ async def _send_registration_success(
             log.info("could not pin registration message: %s", exc)
 
     await message.answer(
-        "Меню бота знизу — картка, гривні та підтримка.",
+        "Меню бота знизу — картка, бонуси та підтримка.",
         reply_markup=get_start_keyboard(message.from_user.id, registered=True),
     )
 
@@ -413,7 +413,7 @@ async def bonuses_info(message: types.Message):
     if user and user.get("poster_client_id"):
         try:
             balance = poster.get_client_bonus_uah(user["poster_client_id"])
-            lines.append(f"\n💳 <b>Твій баланс зараз:</b> {balance:g} грн")
+            lines.append(f"\n💳 <b>Твій баланс зараз:</b> {balance:g}")
         except Exception:
             pass
     await message.answer("\n".join(lines), parse_mode="HTML")

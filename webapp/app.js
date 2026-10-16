@@ -159,6 +159,12 @@
     return v.toLocaleString("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " грн";
   };
 
+  /** Bonus balance / rewards — no «грн»; rate is only «1 бонус на касі = 1 грн». */
+  const fmtBonus = (n) => {
+    const v = Number(n || 0);
+    return v.toLocaleString("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  };
+
   const hasBirthday = (raw) => Boolean(raw && raw !== "0000-00-00");
 
   const fmtBirthday = (raw) => {
@@ -447,7 +453,7 @@
       ? `<p class="muted">Щоб досягнути <strong>${how.target_percent}%</strong>, потрібно <strong>${how.need_charges}</strong> Зарядів. ${escapeHtml(how.per_check || "1 Заряд = чек від 50 грн")}.</p>`
       : `<p class="muted">Максимальний кешбек. Кожен чек від ${L.min_check_uah ?? 50} грн дає 1 Заряд.</p>`;
     const bonusLine = L.bonus_hint
-      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))} грн</strong> — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
+      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))}</strong> бонусів — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
       : "";
 
     const bonusBanner = bonus > 0
@@ -455,8 +461,8 @@
           <span class="loyalty-use-banner-ico">${icon("gift")}</span>
           <span class="loyalty-use-banner-text">
             <strong>${L.bonus_hint
-              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} грн`
-              : `На балансі ${escapeHtml(String(Math.floor(bonus * 100) / 100))} грн — час скористатися`}</strong>
+              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} бонусів`
+              : `На балансі ${escapeHtml(String(Math.floor(bonus * 100) / 100))} — час скористатися`}</strong>
             <span class="muted">Відкрити заклади Craft Coffee</span>
           </span>
           <span class="loyalty-use-banner-arrow" aria-hidden="true">${icon("arrow-up-right")}</span>
@@ -508,14 +514,14 @@
           <h3>${icon("cake")} День народження</h3>
           ${bDone ? `<span class="quest-status">${icon("check")} Отримано</span>` : ""}
         </div>
-        <p class="muted">${bdayDisplay ? `Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : "Дату збережено."}${bDone ? ` +${escapeHtml(String(bBonus))} грн нараховано.` : ""}</p>
+        <p class="muted">${bdayDisplay ? `Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : "Дату збережено."}${bDone ? ` +${escapeHtml(String(bBonus))} нараховано.` : ""}</p>
       </div>`;
     }
     return `
       <div class="panel birthday-home">
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
         <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо гривні одразу.</p>
+        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
         <div class="birthday-profile-picker" id="profile-birthday-root">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
@@ -524,7 +530,7 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати гривні</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонуси</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
@@ -543,15 +549,15 @@
     const refEarned = Number(Q.referrals_earned_uah ?? 0);
     return `
       <div class="panel referral-home">
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} за друга</div>
         <h3>Приведи друга</h3>
         <ol class="referral-steps muted">
           <li>Поділись своїм посиланням</li>
           <li>Друг реєструється за ним у боті</li>
           <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
-          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))} грн</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
+          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))}</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
         </ol>
-        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong></p>
+        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))}</strong></p>
         <div class="quest-actions">
           <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
           <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
@@ -596,9 +602,9 @@
       </div>
 
       <div class="panel panel-balance">
-        <div class="balance-label">${icon("gift")} Доступні гривні</div>
-        <div class="big">${fmtMoney(me.bonus)}</div>
-        <div class="balance-note">1 грн на балансі = 1 грн на касі</div>
+        <div class="balance-label">${icon("gift")} Доступні бонуси</div>
+        <div class="big">${fmtBonus(me.bonus)}</div>
+        <div class="balance-note">1 бонус на касі = 1 грн</div>
       </div>
 
       ${renderLoyaltyCharge(me)}
@@ -646,7 +652,7 @@
     const cycleEnds = Q.cycle_ends ? ` · до ${escapeHtml(Q.cycle_ends)}` : "";
 
     let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
-      <p class="muted" style="margin-top:-6px">Завдання з гривнями на баланс${cycleEnds}</p>`;
+      <p class="muted" style="margin-top:-6px">Завдання з бонусами на баланс${cycleEnds}</p>`;
 
     const activeParts = [];
     const doneParts = [];
@@ -654,9 +660,9 @@
     if (!bDone) {
       activeParts.push(`
       <div class="quest-card">
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
         <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо гривні одразу.</p>
+        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
         <div class="birthday-profile-picker" id="profile-birthday-root">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
@@ -665,7 +671,7 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати гривні</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонуси</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
@@ -677,8 +683,8 @@
           <h3>Поділись датою народження</h3>
           ${doneBadge}
         </div>
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} грн</div>
-        <p class="muted">Гривні нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
+        <p class="muted">Бонуси нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
       </div>`);
     }
 
@@ -691,15 +697,15 @@
     const refReview = Number(Q.referrals_owner_review ?? 0);
     activeParts.push(`
       <div class="quest-card">
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} грн за друга</div>
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} за друга</div>
         <h3>Приведи друга</h3>
         <ol class="referral-steps muted">
           <li>Поділись своїм посиланням</li>
           <li>Друг реєструється за ним у боті</li>
           <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
-          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))} грн</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
+          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))}</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
         </ol>
-        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))} грн</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
+        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))}</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
         <div class="quest-actions">
           <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
           <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
@@ -710,7 +716,7 @@
       const reward = Number(q.reward_uah || 0);
       const rewardLine = q.symbolic
         ? `<div class="quest-reward">${icon("award")} Відзнака</div>`
-        : `<div class="quest-reward">${icon("sparkles")} +${escapeHtml(String(reward))} грн</div>`;
+        : `<div class="quest-reward">${icon("sparkles")} +${escapeHtml(String(reward))}</div>`;
       activeParts.push(`
         <div class="quest-card">
           ${rewardLine}
@@ -728,7 +734,7 @@
             <h3>${escapeHtml(q.title || "Квест")}</h3>
             ${doneBadge}
           </div>
-          <div class="quest-reward">${q.symbolic ? `${icon("award")} Відзнака` : `${icon("sparkles")} +${escapeHtml(String(reward))} грн`}</div>
+          <div class="quest-reward">${q.symbolic ? `${icon("award")} Відзнака` : `${icon("sparkles")} +${escapeHtml(String(reward))}`}</div>
           <p class="muted">${escapeHtml(q.hint || "Виконано")}</p>
         </div>`);
     }
@@ -740,8 +746,8 @@
           <h3>Винагороди за друзів</h3>
           ${doneBadge}
         </div>
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(refEarned))} грн</div>
-        <p class="muted">Успішних запрошень: <strong>${refOk}</strong> · по <strong>${escapeHtml(String(rBonus))} грн</strong> (нарахування наступного дня о 00:00)</p>
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(refEarned))}</div>
+        <p class="muted">Успішних запрошень: <strong>${refOk}</strong> · по <strong>${escapeHtml(String(rBonus))}</strong> (нарахування наступного дня о 00:00)</p>
       </div>`);
     }
 
@@ -983,7 +989,7 @@
     return `
       <div class="hist-bonus-row">
         <span class="hist-bonus-title">${escapeHtml(title)}</span>
-        <span class="price ${positive ? "plus" : "minus"}">${positive ? "+" : ""}${fmtMoney(amount)}</span>
+        <span class="price ${positive ? "plus" : "minus"}">${positive ? "+" : ""}${fmtBonus(amount)}</span>
       </div>`;
   }
 
@@ -996,7 +1002,7 @@
           <div class="muted">${escapeHtml(fmtDateTime(b.date))}</div>
           <h3>${escapeHtml(b.title)}</h3>
         </div>
-        <span class="price ${positive ? "plus" : "minus"}">${positive ? "+" : ""}${fmtMoney(b.amount)}</span>
+        <span class="price ${positive ? "plus" : "minus"}">${positive ? "+" : ""}${fmtBonus(b.amount)}</span>
       </div>`;
   }
 
@@ -1176,7 +1182,7 @@
     const shareRef = document.getElementById("share-referral-link");
     if (shareRef && refLink) {
       shareRef.addEventListener("click", () => {
-        const text = "Оформи картку Craft Coffee — гривні на баланс за каву ☕";
+        const text = "Оформи картку Craft Coffee — бонуси на баланс за каву ☕";
         if (navigator.share) {
           navigator.share({ title: "Craft Coffee", text, url: refLink }).catch(() => {});
         } else if (tg?.openTelegramLink) {

@@ -30,8 +30,8 @@ import os
 router = Router()
 
 _REWARD_LABELS = {
-    "welcome_bonus_uah": "Вітальні гривні",
-    "birthday_bonus_uah": "Гривні за дату народження",
+    "welcome_bonus_uah": "Вітальний бонус",
+    "birthday_bonus_uah": "Бонус за дату народження",
     "annual_birthday_bonus_uah": "Щорічний подарунок на ДН",
     "referral_bonus_uah": "Реферал (за друга)",
     "quest_visits_reward_uah": "Квест: 3 візити",
@@ -47,19 +47,20 @@ def _loyalty_text() -> str:
     s = rewards_snapshot()
     return (
         "🎁 <b>Налаштування лояльності</b>\n\n"
-        f"☕ Вітальні гривні: <b>{s['welcome_bonus_uah']:g} грн</b>\n"
-        f"🎂 За дату народження: <b>{s['birthday_bonus_uah']:g} грн</b>\n"
-        f"🎁 Щорічно на ДН: <b>{s['annual_birthday_bonus_uah']:g} грн</b>\n"
-        f"👥 Реферал: <b>{s['referral_bonus_uah']:g} грн</b>\n"
-        f"📈 Кешбек (базовий / рівні): <b>{s['cashback_percent']:g}%</b>\n\n"
+        f"☕ Вітальний бонус: <b>{s['welcome_bonus_uah']:g}</b>\n"
+        f"🎂 За дату народження: <b>{s['birthday_bonus_uah']:g}</b>\n"
+        f"🎁 Щорічно на ДН: <b>{s['annual_birthday_bonus_uah']:g}</b>\n"
+        f"👥 Реферал: <b>{s['referral_bonus_uah']:g}</b>\n"
+        f"📈 Кешбек (базовий / рівні): <b>{s['cashback_percent']:g}%</b>\n"
+        "• 1 бонус на касі = 1 грн\n\n"
         "<b>Квести</b>\n"
-        f"• 3 візити: <b>{s['quest_visits_reward_uah']:g} грн</b>\n"
-        f"• Напій + їжа: <b>{s['quest_combo_reward_uah']:g} грн</b>\n"
-        f"• 2 різні напої: <b>{s['quest_drinks_reward_uah']:g} грн</b>\n\n"
+        f"• 3 візити: <b>{s['quest_visits_reward_uah']:g}</b>\n"
+        f"• Напій + їжа: <b>{s['quest_combo_reward_uah']:g}</b>\n"
+        f"• 2 різні напої: <b>{s['quest_drinks_reward_uah']:g}</b>\n\n"
         "<b>Досягнення (дні)</b>\n"
-        f"• 5 днів: <b>{s['ach_days_5_reward_uah']:g} грн</b>\n"
-        f"• 15 днів: <b>{s['ach_days_15_reward_uah']:g} грн</b>\n"
-        f"• 30 днів: <b>{s['ach_days_30_reward_uah']:g} грн</b>\n\n"
+        f"• 5 днів: <b>{s['ach_days_5_reward_uah']:g}</b>\n"
+        f"• 15 днів: <b>{s['ach_days_15_reward_uah']:g}</b>\n"
+        f"• 30 днів: <b>{s['ach_days_30_reward_uah']:g}</b>\n\n"
         f"Вікно квестів: <b>{int(s['quest_window_days'])} днів</b> від реєстрації.\n"
         f"💬 Підтримка: <b>@{s.get('support_username') or get_support_username()}</b>\n\n"
         "Кешбек і прогрес квестів — при закритті чека в Poster."
@@ -119,9 +120,9 @@ async def loyalty_edit_reward(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(LoyaltySettings.edit_reward)
     await state.update_data(reward_key=key)
     await callback.message.answer(
-        f"Введи нову суму для <b>{label}</b> у гривнях "
+        f"Введи нову суму бонусів для <b>{label}</b> "
         f"(зараз <b>{snap.get(key, 0):g}</b>).\n"
-        "Наприклад: <code>15</code>",
+        "1 бонус на касі = 1 грн. Наприклад: <code>15</code>",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -201,7 +202,7 @@ async def loyalty_save_reward(message: types.Message, state: FSMContext):
     label = _REWARD_LABELS.get(key, key)
     await state.clear()
     await message.answer(
-        f"✅ {label}: <b>{value:g} грн</b>",
+        f"✅ {label}: <b>{value:g}</b>",
         parse_mode="HTML",
         reply_markup=admin_keyboard(),
     )
@@ -240,7 +241,7 @@ def _referral_review_text(items: list) -> str:
         lines.append(
             f"• #{ref.get('id')}: друг <code>{ref.get('friend_user_id')}</code> ← "
             f"<code>{ref.get('referrer_user_id')}</code> · "
-            f"{float(ref.get('amount_uah') or 0):g} грн · чек {ref.get('qualifying_tx_id') or '—'}"
+            f"+{float(ref.get('amount_uah') or 0):g} · чек {ref.get('qualifying_tx_id') or '—'}"
         )
     return "\n".join(lines)
 

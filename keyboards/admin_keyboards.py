@@ -20,8 +20,8 @@ def admin_keyboard() -> ReplyKeyboardMarkup:
 def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Вітальні гривні", callback_data="loyalty_edit:welcome_bonus_uah")],
-            [InlineKeyboardButton(text="✏️ Гривні за ДН (профіль)", callback_data="loyalty_edit:birthday_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Вітальний бонус", callback_data="loyalty_edit:welcome_bonus_uah")],
+            [InlineKeyboardButton(text="✏️ Бонус за ДН (профіль)", callback_data="loyalty_edit:birthday_bonus_uah")],
             [InlineKeyboardButton(text="✏️ Щорічний подарунок ДН", callback_data="loyalty_edit:annual_birthday_bonus_uah")],
             [InlineKeyboardButton(text="✏️ Реферал (за друга)", callback_data="loyalty_edit:referral_bonus_uah")],
             [InlineKeyboardButton(text="✏️ Кешбек %", callback_data="loyalty_edit_cashback")],

@@ -213,7 +213,7 @@ async def promo_add_title(message: types.Message, state: FSMContext):
     await state.update_data(title=title)
     await state.set_state(PromoMenu.price)
     await message.answer(
-        "Введи <b>ціну в гривнях</b>.\nНаприклад: <code>85</code> або <code>89.5</code>",
+        "Введи <b>ціну в грн</b>.\nНаприклад: <code>85</code> або <code>89.5</code>",
         parse_mode="HTML",
     )
 
