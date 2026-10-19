@@ -217,7 +217,7 @@
     return String(raw);
   };
 
-  const cardIdHtml = (cardNumber, name) => {
+  const cardIdHtml = (cardNumber, name, avatarHtml = "") => {
     // Same digits as Poster bonus card_number (barcode message).
     const digits = String(cardNumber || "").replace(/\D/g, "");
     if (!digits) return "";
@@ -228,9 +228,10 @@
       <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
       <span class="card-id-label">id</span>
     </div>`;
-    const meta = name
+    const meta = (name || avatarHtml)
       ? `<div class="card-meta-row">
-      <div class="card-holder-name">${escapeHtml(name)}</div>
+      ${avatarHtml || ""}
+      ${name ? `<div class="card-holder-name">${escapeHtml(name)}</div>` : ""}
       ${idLine}
     </div>`
       : idLine;
@@ -436,7 +437,7 @@
   }
 
   const referralQrModal = document.getElementById("referral-qr-modal");
-  const referralQrCanvas = document.getElementById("referral-qr-canvas");
+  const referralQrBox = document.getElementById("referral-qr-box");
   const referralQrBackdrop = document.getElementById("referral-qr-backdrop");
   const referralQrClose = document.getElementById("referral-qr-close");
 
@@ -447,18 +448,39 @@
     unlockAppScroll();
   }
 
-  function openReferralQrModal(link) {
-    if (!link || !referralQrModal || !referralQrCanvas) return;
-    closeBarcodeModal();
-    if (window.QRCode?.toCanvas) {
-      window.QRCode.toCanvas(referralQrCanvas, link, {
-        width: 240,
-        margin: 2,
-        color: { dark: "#1a120c", light: "#ffffff" },
-      }, (err) => {
-        if (err) console.error("referral qr", err);
-      });
+  function paintReferralQr(link) {
+    if (!referralQrBox || !link) return;
+    referralQrBox.innerHTML = "";
+    // qrcodejs (CDN): `new QRCode(el, { text, width, height })`
+    if (typeof window.QRCode === "function") {
+      try {
+        // eslint-disable-next-line no-new
+        new window.QRCode(referralQrBox, {
+          text: String(link),
+          width: 220,
+          height: 220,
+          colorDark: "#1a120c",
+          colorLight: "#ffffff",
+          correctLevel: window.QRCode.CorrectLevel?.M ?? 1,
+        });
+        return;
+      } catch (err) {
+        console.error("referral qr (qrcodejs)", err);
+      }
     }
+    // Fallback: public QR image API (works even if JS lib blocked)
+    const img = document.createElement("img");
+    img.width = 220;
+    img.height = 220;
+    img.alt = "QR-код запрошення";
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(link)}`;
+    referralQrBox.appendChild(img);
+  }
+
+  function openReferralQrModal(link) {
+    if (!link || !referralQrModal || !referralQrBox) return;
+    closeBarcodeModal();
+    paintReferralQr(link);
     referralQrModal.hidden = false;
     referralQrModal.setAttribute("aria-hidden", "false");
     lockAppScroll();
@@ -670,6 +692,10 @@
     }
     const code = me.card_number || "";
     const name = me.name || "";
+    const initial = (name || "?").trim().charAt(0).toUpperCase();
+    const avatar = me.photo_url
+      ? `<img class="avatar avatar-sm" src="${escapeHtml(me.photo_url)}" alt="" width="40" height="40">`
+      : `<div class="avatar avatar-sm avatar-fallback" aria-hidden="true">${escapeHtml(initial)}</div>`;
     return `
       <div class="panel panel-hero">
         ${code ? renderBarcode(code) : `<div class="empty"><p class="muted">Номер картки ще не сформовано</p></div>`}
@@ -677,9 +703,11 @@
           ${icon("maximize-2")}
           Натисни, щоб збільшити штрихкод
         </div>
-        ${cardIdHtml(code, name)}` : (name
-          ? `<div class="card-meta-row"><div class="card-holder-name">${escapeHtml(name)}</div></div>`
-          : "")}
+        ${cardIdHtml(code, name, avatar)}` : `
+        <div class="card-meta-row">
+          ${avatar}
+          ${name ? `<div class="card-holder-name">${escapeHtml(name)}</div>` : ""}
+        </div>`}
       </div>
 
       <div class="panel panel-balance">
