@@ -25,8 +25,8 @@
     }
     const mobile = syncViewportMode();
     try {
-      tg.setHeaderColor("#ffffff");
-      tg.setBackgroundColor("#ffffff");
+      tg.setHeaderColor("#FDFBF7");
+      tg.setBackgroundColor("#F8F5EE");
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
@@ -459,7 +459,7 @@
           text: String(link),
           width: 220,
           height: 220,
-          colorDark: "#1a120c",
+          colorDark: "#35221A",
           colorLight: "#ffffff",
           correctLevel: window.QRCode.CorrectLevel?.M ?? 1,
         });
@@ -497,7 +497,7 @@
       height: large ? 220 : 72,
       width: large ? 2.8 : 2,
       background: "#ffffff",
-      lineColor: "#111111",
+      lineColor: "#35221A",
     };
     try {
       JsBarcode(el, code, opts);

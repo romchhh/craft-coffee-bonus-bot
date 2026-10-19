@@ -4,8 +4,8 @@
     tg.ready();
     tg.expand();
     try {
-      tg.setHeaderColor("#ffffff");
-      tg.setBackgroundColor("#ffffff");
+      tg.setHeaderColor("#FDFBF7");
+      tg.setBackgroundColor("#F8F5EE");
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
