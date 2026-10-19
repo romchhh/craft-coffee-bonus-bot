@@ -5,6 +5,7 @@
 cache/
 database/*.db
 database/*.db-*
+database/backups/
 database_export*.xlsx
 scripts/test_clients.json
 logs/*.log

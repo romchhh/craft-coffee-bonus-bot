@@ -182,6 +182,13 @@ nav#tabs button svg {
   flex-shrink: 0;
 }
 
+nav#tabs .tab-emoji {
+  display: block;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 nav#tabs .tab-label {
   display: block;
   width: 100%;
@@ -219,7 +226,7 @@ nav#tabs button:active { transform: scale(0.96); }
 
 .panel-hero {
   background: #fff;
-  padding: 22px 18px 18px;
+  padding: 16px 18px 12px;
 }
 
 .panel-balance {
@@ -443,7 +450,7 @@ body.barcode-modal-open .surface {
   color: var(--sub);
   font-size: 13px;
   font-weight: 600;
-  margin: 0 0 14px;
+  margin: 0 0 8px;
 }
 
 .tap-hint svg {
@@ -452,30 +459,31 @@ body.barcode-modal-open .surface {
   stroke-width: 2.2;
 }
 
-.card-holder {
+.card-meta-row {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 4px 0 0;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: var(--soft);
-  border: 1px solid var(--edge);
-}
-
-.card-holder-body {
-  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 0;
   min-width: 0;
 }
 
 .card-holder-name {
+  flex: 1;
+  min-width: 0;
   font-size: 18px;
   font-weight: 800;
   color: var(--ink);
-  margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+}
+
+.card-meta-row .card-id-line {
+  flex-shrink: 0;
+  margin: 0;
+  text-align: right;
 }
 
 .personal-id {
@@ -1478,7 +1486,7 @@ body.barcode-modal-open .surface {
 
 .card-id-line {
   text-align: center;
-  margin: 10px 0 4px;
+  margin: 0;
   font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1515,7 +1523,7 @@ body.barcode-modal-open .surface {
 .card-id-hint {
   text-align: center;
   font-size: 12px;
-  margin: 0 0 8px;
+  margin: 4px 0 0;
 }
 
 .spot-card-photo {
@@ -1736,11 +1744,41 @@ body.barcode-modal-open .surface {
   margin-top: 12px;
 }
 
+.referral-rules-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--espresso);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.referral-rules-chevron {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.referral-rules-toggle.open .referral-rules-chevron,
+.referral-rules-toggle[aria-expanded="true"] .referral-rules-chevron {
+  transform: rotate(180deg);
+}
+
 .referral-steps {
   margin: 0 0 12px;
   padding-left: 1.25em;
   line-height: 1.45;
   font-size: 13px;
+}
+
+.referral-steps[hidden] {
+  display: none !important;
 }
 
 .referral-steps li {
@@ -1754,6 +1792,23 @@ body.barcode-modal-open .surface {
 .referral-steps strong {
   color: var(--espresso);
   font-weight: 700;
+}
+
+.referral-qr-code {
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 0 0 12px;
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.referral-qr-code canvas {
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  height: auto;
 }
 
 .quest-reward {

@@ -27,6 +27,38 @@ log = logging.getLogger(__name__)
 
 MIN_VISIT_GAP_HOURS = 2
 DAYS_STEPS = (5, 15, 30)
+BIRTHDAY_EDIT_WINDOW = timedelta(minutes=10)
+
+
+def _parse_kyiv_ts(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        dt = datetime.strptime(str(raw).strip(), "%Y-%m-%d %H:%M:%S")
+        return dt.replace(tzinfo=KYIV_TZ)
+    except ValueError:
+        return None
+
+
+def birthday_has_value(birthday: str | None) -> bool:
+    return bool(birthday and birthday not in ("0000-00-00", ""))
+
+
+def birthday_editable_until_iso(user: dict | None) -> str | None:
+    """ISO timestamp until which the user may correct birthday; None if locked/hidden."""
+    if not user or not birthday_has_value(user.get("birthday")):
+        return None
+    set_at = _parse_kyiv_ts(user.get("birthday_set_at"))
+    if not set_at:
+        return None
+    until = set_at + BIRTHDAY_EDIT_WINDOW
+    if now_kyiv() >= until:
+        return None
+    return until.isoformat()
+
+
+def birthday_can_edit(user: dict | None) -> bool:
+    return birthday_editable_until_iso(user) is not None
 
 _DRINK_RE = re.compile(
     r"кав|кофе|coffee|еспрес|латте|лате|капуч|американо|раф|чай|tea|лимонад|смузі|"
@@ -181,8 +213,16 @@ def on_purchase_for_quests(
     closed_at: datetime | None = None,
 ) -> list[dict]:
     """Update quest progress after a closed receipt."""
+    from config import QUESTS_ENABLED
+
+    # Keep function for later Mini App quests; do not progress or pay while disabled.
+    if not QUESTS_ENABLED:
+        return []
+
     user = get_user(telegram_user_id)
     if not user or not user.get("registered"):
+        return []
+    if int(user.get("bonuses_blocked") or 0):
         return []
 
     tid = str(tx.get("transaction_id") or tx.get("id") or "")
@@ -410,9 +450,30 @@ def on_purchase_for_quests(
 
 def build_quests_ui(user_id: int) -> dict:
     """Quest and referral payload for the mini app."""
+    from config import QUESTS_ENABLED
     from services.referrals import referral_ui_payload
 
     user = get_user(user_id) or {}
+    birthday = user.get("birthday")
+    has_bday = birthday_has_value(birthday)
+    ref_ui = referral_ui_payload(int(user_id))
+
+    # Birthday + referral stay; visit/combo/achievement quests hidden until re-enabled.
+    if not QUESTS_ENABLED:
+        return {
+            "birthday_bonus_uah": get_birthday_bonus_uah(),
+            "birthday_filled": has_bday,
+            "birthday_bonus_claimed": bool(user.get("birthday_bonus_given")),
+            "birthday_editable_until": birthday_editable_until_iso(user),
+            **ref_ui,
+            "cycle_id": None,
+            "cycle_ends": None,
+            "active": [],
+            "done": [],
+            "rewards": rewards_snapshot(),
+            "quests_enabled": False,
+        }
+
     if user.get("registered"):
         cycle_id = _ensure_cycle_quests(int(user_id), user)
     else:
@@ -524,18 +585,16 @@ def build_quests_ui(user_id: int) -> dict:
                     }
                 )
 
-    birthday = user.get("birthday")
-    has_bday = bool(birthday and birthday != "0000-00-00")
-    ref_ui = referral_ui_payload(int(user_id))
-
     return {
         "birthday_bonus_uah": get_birthday_bonus_uah(),
         "birthday_filled": has_bday,
         "birthday_bonus_claimed": bool(user.get("birthday_bonus_given")),
+        "birthday_editable_until": birthday_editable_until_iso(user),
         **ref_ui,
         "cycle_id": cycle_id,
         "cycle_ends": end.strftime("%Y-%m-%d") if end else None,
         "active": active,
         "done": done,
         "rewards": rewards_snapshot(),
+        "quests_enabled": True,
     }

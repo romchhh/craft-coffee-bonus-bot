@@ -54,8 +54,8 @@ def get_start_keyboard(user_id: int, registered: bool | None = None):
 
     keyboard = [
         [KeyboardButton(text="🪪 Моя картка")],
-        [KeyboardButton(text="☕ Про Craft Coffee"), KeyboardButton(text="🎁 Бонуси")],
-        [KeyboardButton(text="💬 Підтримка"), KeyboardButton(text="🔔 Розсилка")],
+        [KeyboardButton(text="☕ Про Крафт Кава"), KeyboardButton(text="🎁 Крафтики")],
+        [KeyboardButton(text="💬 Підтримка"), KeyboardButton(text="ℹ️ Інфо")],
     ]
     if user_id in all_admins:
         keyboard.append([KeyboardButton(text="👨‍💻 Адмін панель")])
@@ -88,18 +88,50 @@ def get_manager_keyboard():
     )
 
 
-def get_mailing_prefs_keyboard(*, opted_out: bool) -> InlineKeyboardMarkup:
+def get_info_keyboard(*, opted_out: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    base = (WEBAPP_URL or "").rstrip("/")
+    if base:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📜 Правила програми",
+                    web_app=WebAppInfo(url=f"{base}/rules"),
+                )
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🛡 Конфіденційність",
+                    web_app=WebAppInfo(url=f"{base}/privacy"),
+                )
+            ]
+        )
     if opted_out:
-        btn = InlineKeyboardButton(
-            text="🔔 Підписатися знову",
-            callback_data="mailing_opt_in",
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔔 Підписатися на розсилку",
+                    callback_data="mailing_opt_in",
+                )
+            ]
         )
     else:
-        btn = InlineKeyboardButton(
-            text="🔕 Відписатися від розсилки",
-            callback_data="mailing_opt_out",
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔕 Відписатися від розсилки",
+                    callback_data="mailing_opt_out",
+                )
+            ]
         )
-    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_mailing_prefs_keyboard(*, opted_out: bool) -> InlineKeyboardMarkup:
+    """Alias — unsubscribe lives only on the Info screen."""
+    return get_info_keyboard(opted_out=opted_out)
 
 
 def get_about_keyboard():

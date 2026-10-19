@@ -24,6 +24,9 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     user = get_user(user_id)
     if not user or user.get("birthday_bonus_given"):
         return 0.0
+    if int(user.get("bonuses_blocked") or 0):
+        log.info("birthday bonus skipped — blocked user=%s", user_id)
+        return 0.0
     amount = get_birthday_bonus_uah()
     if amount <= 0 or not poster_client_id:
         mark_birthday_bonus_given(user_id)
@@ -41,6 +44,8 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
 def maybe_grant_annual_birthday(user_id: int) -> float:
     user = get_user(user_id)
     if not user or not user.get("registered"):
+        return 0.0
+    if int(user.get("bonuses_blocked") or 0):
         return 0.0
     bday = user.get("birthday")
     if not bday or bday in ("0000-00-00",):

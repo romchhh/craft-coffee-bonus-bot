@@ -46,8 +46,11 @@ ACH_DAYS_5_REWARD_UAH = float(getenv("ACH_DAYS_5_REWARD_UAH", "10"))
 ACH_DAYS_15_REWARD_UAH = float(getenv("ACH_DAYS_15_REWARD_UAH", "20"))
 ACH_DAYS_30_REWARD_UAH = float(getenv("ACH_DAYS_30_REWARD_UAH", "30"))
 QUEST_WINDOW_DAYS = int(getenv("QUEST_WINDOW_DAYS", "14"))
+# Purchase quests / achievements (visits, combo, drinks, days). Off until Mini App UI returns.
+# Cashback from Заряд and birthday/referral are independent of this flag.
+QUESTS_ENABLED = getenv("QUESTS_ENABLED", "0") == "1"
 
-# Telegram username for client support (editable in admin → Лояльність)
+# Telegram username for client support (editable in admin → Контакт підтримки)
 SUPPORT_USERNAME = (getenv("SUPPORT_USERNAME") or "Oleksandr_Hniezdilov").strip().lstrip("@")
 
 WEBAPP_URL = (getenv("WEBAPP_URL") or "").rstrip("/")
@@ -58,7 +61,7 @@ WEBAPP_DEV = getenv("WEBAPP_DEV", "0") == "1"
 # Apple Wallet (.pkpass) — requires Apple Developer Pass Type ID
 APPLE_PASS_TYPE_ID = getenv("APPLE_PASS_TYPE_ID", "")
 APPLE_TEAM_ID = getenv("APPLE_TEAM_ID", "")
-APPLE_ORG_NAME = getenv("APPLE_ORG_NAME", "Craft Coffee")
+APPLE_ORG_NAME = getenv("APPLE_ORG_NAME", "Крафт Кава")
 APPLE_PASS_CERT = getenv("APPLE_PASS_CERT", "certs/pass_cert.pem")
 APPLE_PASS_KEY = getenv("APPLE_PASS_KEY", "certs/pass_key.pem")
 APPLE_PASS_KEY_PASSWORD = getenv("APPLE_PASS_KEY_PASSWORD", "")
@@ -76,3 +79,9 @@ MAPS_URL = (getenv("MAPS_URL") or "").strip()
 LOYALTY_CRON_ENABLED = getenv("LOYALTY_CRON_ENABLED", "1") == "1"
 LOYALTY_CRON_INTERVAL_SEC = int(getenv("LOYALTY_CRON_INTERVAL_SEC", "60"))
 LOYALTY_CRON_LOOKBACK_DAYS = int(getenv("LOYALTY_CRON_LOOKBACK_DAYS", "2"))
+
+# Daily SQLite backup → admin Telegram DMs (Europe/Kyiv clock)
+BACKUP_ENABLED = getenv("BACKUP_ENABLED", "1") == "1"
+BACKUP_HOUR_KYIV = int(getenv("BACKUP_HOUR_KYIV", "3") or "3")
+BACKUP_MINUTE_KYIV = int(getenv("BACKUP_MINUTE_KYIV", "15") or "15")
+BACKUP_KEEP_DAYS = int(getenv("BACKUP_KEEP_DAYS", "14") or "14")

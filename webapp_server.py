@@ -1,4 +1,4 @@
-"""Mini App HTTP server + JSON API for Craft Coffee."""
+"""Mini App HTTP server + JSON API for Крафт Кава."""
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +27,7 @@ from config import (
 from database_functions.client_db import get_user, update_user_birthday
 from utils.kyiv_time import kyiv_now_str
 from services.quest_bonuses import grant_birthday_bonus, maybe_grant_annual_birthday, quests_payload
+from services.quests import birthday_can_edit, birthday_has_value
 from database_functions.settings_db import get_welcome_bonus_uah, list_bonus_accruals_for_user
 from services import apple_wallet, poster
 from services import poster_media
@@ -214,6 +215,15 @@ async def api_update_birthday(request: web.Request) -> web.Response:
         )
 
     birthday = _validate_birthday_iso(body.get("birthday") or "")
+    already = birthday_has_value(db_user.get("birthday"))
+    if already and not birthday_can_edit(db_user):
+        raise web.HTTPBadRequest(
+            text=json.dumps(
+                {"error": "Редагування дати народження більше недоступне (минуло 10 хвилин)"}
+            ),
+            content_type="application/json",
+        )
+
     client_id = db_user.get("poster_client_id")
     if client_id:
         try:
@@ -225,7 +235,8 @@ async def api_update_birthday(request: web.Request) -> web.Response:
                 content_type="application/json",
             )
 
-    update_user_birthday(int(tg_user["id"]), birthday)
+    # First save starts the 10-minute edit window; corrections keep the original timestamp.
+    update_user_birthday(int(tg_user["id"]), birthday, record_set_at=not already)
     bonus_added = 0.0
     db_user = get_user(tg_user["id"]) or {}
     if not db_user.get("birthday_bonus_given"):
@@ -233,7 +244,9 @@ async def api_update_birthday(request: web.Request) -> web.Response:
             bonus_added = grant_birthday_bonus(int(tg_user["id"]), client_id)
         except Exception:
             raise web.HTTPBadGateway(
-                text=json.dumps({"error": "Дату зберегли, але бонуси нарахувати не вдалося. Спробуй пізніше"}),
+                text=json.dumps(
+                    {"error": "Дату зберегли, але Крафтики нарахувати не вдалося. Спробуй пізніше"}
+                ),
                 content_type="application/json",
             )
     if client_id:
@@ -317,6 +330,7 @@ async def api_me(request: web.Request) -> web.Response:
             "card_short_id": card_short_id,
             "poster_client_id": db_user.get("poster_client_id"),
             "bonus": bonus,
+            "bonuses_blocked": bool(int(db_user.get("bonuses_blocked") or 0)),
             "photo_url": photo_url,
             "wallet": apple_wallet.status(),
             "loyalty": loyalty,
@@ -541,7 +555,7 @@ async def api_history(request: web.Request) -> web.Response:
                 {
                     "transaction_id": tid,
                     "date": close_date,
-                    "spot": spots.get(int(t.get("spot_id") or 0), "Craft Coffee"),
+                    "spot": spots.get(int(t.get("spot_id") or 0), "Крафт Кава"),
                     "sum": poster.from_minor(t.get("sum")),
                     "payed": poster.from_minor(t.get("payed_sum")),
                     "bonus_spent": poster.from_minor(t.get("payed_bonus")),
@@ -556,7 +570,7 @@ async def api_history(request: web.Request) -> web.Response:
         bonuses.append(
             {
                 "date": (db_user.get("join_date") or "")[:19] or kyiv_now_str(),
-                "title": "Вітальний бонус за реєстрацію",
+                "title": "Вітальні Крафтики за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
             }
         )
@@ -566,7 +580,7 @@ async def api_history(request: web.Request) -> web.Response:
         bonuses.append(
             {
                 "date": (db_user.get("last_activity") or "")[:19] or kyiv_now_str(),
-                "title": "Бонуси за день народження",
+                "title": "Крафтики за день народження",
                 "amount": get_birthday_bonus_uah(),
             }
         )

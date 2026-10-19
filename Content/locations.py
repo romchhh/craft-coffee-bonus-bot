@@ -98,14 +98,25 @@ def locations_for_api() -> list[dict]:
     return items
 
 
+def _spot_short_name(name: str) -> str:
+    """Drop street suffix after « · » so address is not duplicated in about text."""
+    raw = (name or "").strip()
+    if " · " in raw:
+        return raw.split(" · ", 1)[0].strip() or raw
+    return raw
+
+
 def locations_text_html() -> str:
     from database_functions import spots_db as spots
 
     lines = ["<b>Шукай нас тут:</b>"]
     for loc in spots.list_spots(active_only=True):
-        name = loc.get("name") or ""
-        addr = loc.get("address") or ""
-        lines.append(f"📍 {name}: {addr}")
+        name = _spot_short_name(str(loc.get("name") or ""))
+        addr = (loc.get("address") or "").strip()
+        if name and addr:
+            lines.append(f"📍 {name}: {addr}")
+        elif name or addr:
+            lines.append(f"📍 {name or addr}")
     lines.append("")
     lines.append(f'📸 <a href="{INSTAGRAM_URL}">Instagram @kraft_kava_brovary</a>')
     return "\n".join(lines)

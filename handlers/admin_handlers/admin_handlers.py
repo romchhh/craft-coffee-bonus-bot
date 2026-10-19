@@ -10,7 +10,6 @@ from keyboards.admin_keyboards import (
     get_loyalty_settings_keyboard,
     get_referral_review_keyboard,
 )
-from Content.texts import get_greeting_message
 from utils.admin_functions import generate_database_export, format_statistics_message
 from database_functions.settings_db import (
     REWARD_SETTING_KEYS,
@@ -52,7 +51,7 @@ def _loyalty_text() -> str:
         f"🎁 Щорічно на ДН: <b>{s['annual_birthday_bonus_uah']:g}</b>\n"
         f"👥 Реферал: <b>{s['referral_bonus_uah']:g}</b>\n"
         f"📈 Кешбек (базовий / рівні): <b>{s['cashback_percent']:g}%</b>\n"
-        "• 1 бонус на касі = 1 грн\n\n"
+        "• 1 Крафтик = 1 грн знижки\n\n"
         "<b>Квести</b>\n"
         f"• 3 візити: <b>{s['quest_visits_reward_uah']:g}</b>\n"
         f"• Напій + їжа: <b>{s['quest_combo_reward_uah']:g}</b>\n"
@@ -61,9 +60,9 @@ def _loyalty_text() -> str:
         f"• 5 днів: <b>{s['ach_days_5_reward_uah']:g}</b>\n"
         f"• 15 днів: <b>{s['ach_days_15_reward_uah']:g}</b>\n"
         f"• 30 днів: <b>{s['ach_days_30_reward_uah']:g}</b>\n\n"
-        f"Вікно квестів: <b>{int(s['quest_window_days'])} днів</b> від реєстрації.\n"
-        f"💬 Підтримка: <b>@{s.get('support_username') or get_support_username()}</b>\n\n"
-        "Кешбек і прогрес квестів — при закритті чека в Poster."
+        f"Вікно квестів: <b>{int(s['quest_window_days'])} днів</b> від реєстрації.\n\n"
+        "Кешбек і прогрес квестів — при закритті чека в Poster.\n"
+        "Контакт підтримки клієнтів — у меню <b>💬 Контакт підтримки</b>."
     )
 
 
@@ -74,12 +73,14 @@ async def admin_panel(message: types.Message):
 
 @router.message(IsAdmin(), F.text.in_(["Головне меню"]))
 async def my_parcel(message: types.Message, state: FSMContext):
-    user = message.from_user
+    await state.clear()
     user_id = message.from_user.id
     from database_functions.client_db import is_registered
-    keyboard = get_start_keyboard(user_id, registered=is_registered(user_id))
-    greeting_message = get_greeting_message(user.first_name)
-    await message.answer(greeting_message, reply_markup=keyboard, parse_mode="HTML")
+
+    registered = is_registered(user_id)
+    keyboard = get_start_keyboard(user_id, registered=registered)
+    # Only switch reply keyboard — do not re-send registration welcome.
+    await message.answer("Меню картки 👇", reply_markup=keyboard)
 
 
 @router.message(IsAdmin(), F.text.in_(["Статистика"]))
@@ -122,7 +123,7 @@ async def loyalty_edit_reward(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(
         f"Введи нову суму бонусів для <b>{label}</b> "
         f"(зараз <b>{snap.get(key, 0):g}</b>).\n"
-        "1 бонус на касі = 1 грн. Наприклад: <code>15</code>",
+        "1 Крафтик = 1 грн знижки. Наприклад: <code>15</code>",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -137,6 +138,29 @@ async def loyalty_edit_cashback(callback: types.CallbackQuery, state: FSMContext
         parse_mode="HTML",
     )
     await callback.answer()
+
+
+def _support_settings_text() -> str:
+    current = get_support_username()
+    return (
+        "💬 <b>Контакт підтримки</b>\n\n"
+        f"Зараз клієнти пишуть сюди: <b>@{current}</b>\n"
+        f"Посилання: https://t.me/{current}\n\n"
+        "Цей контакт показується в боті в розділі «Підтримка»."
+    )
+
+
+@router.message(IsAdmin(), F.text == "💬 Контакт підтримки")
+async def support_settings_menu(message: types.Message, state: FSMContext):
+    from keyboards.admin_keyboards import get_support_confirm_keyboard
+
+    await state.clear()
+    await message.answer(
+        _support_settings_text(),
+        parse_mode="HTML",
+        reply_markup=get_support_confirm_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(IsAdmin(), F.data == "loyalty_edit_support")
@@ -155,6 +179,8 @@ async def loyalty_edit_support(callback: types.CallbackQuery, state: FSMContext)
 
 @router.message(IsAdmin(), LoyaltySettings.support_username)
 async def loyalty_save_support(message: types.Message, state: FSMContext):
+    from keyboards.admin_keyboards import get_support_confirm_keyboard
+
     raw = (message.text or "").strip()
     try:
         username = set_support_username(raw)
@@ -171,11 +197,13 @@ async def loyalty_save_support(message: types.Message, state: FSMContext):
         f"Клієнти писатимуть сюди: https://t.me/{username}",
         parse_mode="HTML",
         reply_markup=admin_keyboard(),
+        disable_web_page_preview=True,
     )
     await message.answer(
-        _loyalty_text(),
+        _support_settings_text(),
         parse_mode="HTML",
-        reply_markup=get_loyalty_settings_keyboard(),
+        reply_markup=get_support_confirm_keyboard(),
+        disable_web_page_preview=True,
     )
 
 
@@ -324,3 +352,21 @@ async def export_database(callback: types.CallbackQuery):
 
     if os.path.exists(filename):
         os.remove(filename)
+
+
+@router.callback_query(IsAdmin(), F.data == "backup_db_now")
+async def backup_db_now(callback: types.CallbackQuery):
+    from services.backup_cron import send_backup_to_admins
+
+    await callback.answer("Роблю бекап…")
+    await callback.message.answer("💾 Створюю бекап SQLite і надсилаю адмінам у ЛС…")
+    report = await send_backup_to_admins(bot, reason="ручний з адмін-панелі")
+    if report.get("ok"):
+        await callback.message.answer(
+            f"✅ Бекап надіслано: {len(report.get('sent') or [])} адмін(ам).\n"
+            f"Файл на сервері: <code>{report.get('path')}</code>",
+            parse_mode="HTML",
+        )
+    else:
+        err = "; ".join(report.get("errors") or ["невідома помилка"])
+        await callback.message.answer(f"❌ Бекап не вдався: {err}")

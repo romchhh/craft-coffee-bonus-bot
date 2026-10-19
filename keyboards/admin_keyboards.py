@@ -7,14 +7,62 @@ from database_functions.links_db import get_all_links
 def admin_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="Розсилка"), KeyboardButton(text="Статистика")],
+        [KeyboardButton(text="👤 Клієнти"), KeyboardButton(text="👥 Реферали")],
         [KeyboardButton(text="Адміністратори"), KeyboardButton(text="Посилання")],
-        [KeyboardButton(text="🎁 Лояльність"), KeyboardButton(text="👥 Реферали")],
+        [KeyboardButton(text="🎁 Лояльність"), KeyboardButton(text="💬 Контакт підтримки")],
         [KeyboardButton(text="🍽 Меню"), KeyboardButton(text="📍 Точки")],
         [KeyboardButton(text="Головне меню")],
     ]
 
     keyboard = ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
     return keyboard
+
+
+def get_clients_hub_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔎 Пошук клієнта", callback_data="clients_search")],
+            [InlineKeyboardButton(text="🆕 Останні зареєстровані", callback_data="clients_recent")],
+            [InlineKeyboardButton(text="🚫 З блокуванням Крафтиків", callback_data="clients_blocked")],
+            [InlineKeyboardButton(text="⚠️ Аномалії", callback_data="clients_anomalies")],
+        ]
+    )
+
+
+def get_client_card_keyboard(user_id: int, *, blocked: bool) -> InlineKeyboardMarkup:
+    block_btn = (
+        InlineKeyboardButton(text="✅ Розблокувати Крафтики", callback_data=f"client_unblock:{user_id}")
+        if blocked
+        else InlineKeyboardButton(text="🚫 Заблокувати Крафтики", callback_data=f"client_block:{user_id}")
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📜 Історія покупок", callback_data=f"client_hist:{user_id}"),
+                InlineKeyboardButton(text="🔄 Оновити", callback_data=f"client_view:{user_id}"),
+            ],
+            [InlineKeyboardButton(text="🎁 Подарувати Крафтики", callback_data=f"client_gift:{user_id}")],
+            [block_btn],
+            [InlineKeyboardButton(text="◀️ До клієнтів", callback_data="clients_hub")],
+        ]
+    )
+
+
+def get_client_search_results_keyboard(users: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    for u in users[:12]:
+        uid = int(u["user_id"])
+        name = (u.get("display_name") or u.get("user_first_name") or "Клієнт").strip()
+        phone = (u.get("user_phone") or "").strip()
+        flag = "🚫 " if int(u.get("bonuses_blocked") or 0) else ""
+        label = f"{flag}{name}"
+        if phone:
+            label += f" · {phone[-4:]}"
+        label = (label[:60] + "…") if len(label) > 61 else label
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"client_view:{uid}")])
+    rows.append([InlineKeyboardButton(text="🔎 Новий пошук", callback_data="clients_search")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="clients_hub")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
@@ -25,7 +73,6 @@ def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Щорічний подарунок ДН", callback_data="loyalty_edit:annual_birthday_bonus_uah")],
             [InlineKeyboardButton(text="✏️ Реферал (за друга)", callback_data="loyalty_edit:referral_bonus_uah")],
             [InlineKeyboardButton(text="✏️ Кешбек %", callback_data="loyalty_edit_cashback")],
-            [InlineKeyboardButton(text="✏️ Контакт підтримки", callback_data="loyalty_edit_support")],
             [InlineKeyboardButton(text="✏️ Квест: 3 візити", callback_data="loyalty_edit:quest_visits_reward_uah")],
             [InlineKeyboardButton(text="✏️ Квест: напій+їжа", callback_data="loyalty_edit:quest_combo_reward_uah")],
             [InlineKeyboardButton(text="✏️ Квест: 2 напої", callback_data="loyalty_edit:quest_drinks_reward_uah")],
@@ -34,6 +81,14 @@ def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Досягнення 30 днів", callback_data="loyalty_edit:ach_days_30_reward_uah")],
             [InlineKeyboardButton(text="🔄 Оновити", callback_data="loyalty_refresh")],
             [InlineKeyboardButton(text="👥 Реферали на перевірці", callback_data="referral_review_list")],
+        ]
+    )
+
+
+def get_support_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Змінити контакт", callback_data="loyalty_edit_support")],
         ]
     )
 
@@ -58,7 +113,9 @@ def get_referral_review_keyboard(items: list[dict]) -> InlineKeyboardMarkup:
 
 def get_export_database_keyboard() -> InlineKeyboardMarkup:
     inline_kb_list = [
-        [InlineKeyboardButton(text="🔍 Вигрузити БД", callback_data="export_database")]
+        [InlineKeyboardButton(text="🔍 Вигрузити Excel", callback_data="export_database")],
+        [InlineKeyboardButton(text="⚠️ Аномалії лояльності", callback_data="clients_anomalies")],
+        [InlineKeyboardButton(text="💾 Бекап БД зараз", callback_data="backup_db_now")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
 
@@ -123,6 +180,7 @@ def back_mailing_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
 
 def post_keyboard(user_data: dict, user_id: str, url_buttons: list = None) -> InlineKeyboardMarkup:
+    """Buttons under a broadcast post. Unsubscribe is only in client «ℹ️ Інфо»."""
     inline_kb_list = []
     if url_buttons:
         for row in url_buttons:
@@ -132,16 +190,7 @@ def post_keyboard(user_data: dict, user_id: str, url_buttons: list = None) -> In
                     for button_text, button_url in row
                 ]
             )
-    # Always allow opting out of future promotional broadcasts
-    inline_kb_list.append(
-        [
-            InlineKeyboardButton(
-                text="🔕 Відписатися від розсилки",
-                callback_data="mailing_opt_out",
-            )
-        ]
-    )
-    return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
+    return InlineKeyboardMarkup(inline_keyboard=inline_kb_list) if inline_kb_list else None
 
 
 # LINKS KEYBOARD

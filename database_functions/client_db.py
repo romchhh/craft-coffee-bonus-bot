@@ -28,7 +28,9 @@ def create_table():
             referred_by_user_id INTEGER,
             birthday_bonus_given INTEGER DEFAULT 0,
             referral_bonus_paid INTEGER DEFAULT 0,
-            annual_birthday_year INTEGER
+            annual_birthday_year INTEGER,
+            birthday_set_at TEXT,
+            bonuses_blocked INTEGER DEFAULT 0
         )
         """
     )
@@ -50,9 +52,12 @@ def _migrate():
         "birthday_bonus_given": "INTEGER DEFAULT 0",
         "referral_bonus_paid": "INTEGER DEFAULT 0",
         "annual_birthday_year": "INTEGER",
+        "birthday_set_at": "TEXT",
         "referral_click_at": "TEXT",
         # 0 = receives admin broadcasts; 1 = opted out of promotional mailing
         "mailing_opt_out": "INTEGER DEFAULT 0",
+        # 1 = cashback / auto Крафтики accrual blocked (admin)
+        "bonuses_blocked": "INTEGER DEFAULT 0",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -248,15 +253,23 @@ def count_successful_referrals(referrer_user_id: int | str) -> int:
     return int(row[0] or 0)
 
 
-def update_user_birthday(user_id: int | str, birthday: str | None) -> None:
-    cursor.execute(
-        "UPDATE users SET birthday = ?, last_activity = ? WHERE user_id = ?",
-        (
-            birthday,
-            kyiv_now_str(),
-            user_id,
-        ),
-    )
+def update_user_birthday(
+    user_id: int | str,
+    birthday: str | None,
+    *,
+    record_set_at: bool = False,
+) -> None:
+    now = kyiv_now_str()
+    if record_set_at:
+        cursor.execute(
+            "UPDATE users SET birthday = ?, birthday_set_at = ?, last_activity = ? WHERE user_id = ?",
+            (birthday, now, now, user_id),
+        )
+    else:
+        cursor.execute(
+            "UPDATE users SET birthday = ?, last_activity = ? WHERE user_id = ?",
+            (birthday, now, user_id),
+        )
     conn.commit()
 
 
@@ -330,3 +343,87 @@ def get_mailing_recipient_ids() -> list[int]:
         """
     ).fetchall()
     return [int(r[0]) for r in rows if r[0] is not None]
+
+
+def is_bonuses_blocked(user_id: int | str) -> bool:
+    user = get_user(user_id)
+    return bool(user and int(user.get("bonuses_blocked") or 0) == 1)
+
+
+def set_bonuses_blocked(user_id: int | str, blocked: bool) -> None:
+    cursor.execute(
+        "UPDATE users SET bonuses_blocked = ?, last_activity = ? WHERE user_id = ?",
+        (1 if blocked else 0, kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
+def count_bonuses_blocked() -> int:
+    row = cursor.execute(
+        "SELECT COUNT(*) FROM users WHERE COALESCE(bonuses_blocked, 0) = 1"
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def list_recent_registered(limit: int = 12) -> list[dict]:
+    rows = cursor.execute(
+        """
+        SELECT * FROM users
+        WHERE registered = 1
+        ORDER BY COALESCE(join_date, '') DESC, id DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_clients(query: str, *, limit: int = 15) -> list[dict]:
+    """Search registered clients by phone, Telegram id, card, username or name."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    digits = "".join(ch for ch in q if ch.isdigit())
+    like = f"%{q.lstrip('@')}%"
+    params: list = []
+    clauses = [
+        "CAST(user_id AS TEXT) = ?",
+        "card_number LIKE ?",
+        "IFNULL(card_short_id, '') LIKE ?",
+        "IFNULL(user_name, '') LIKE ?",
+        "IFNULL(display_name, '') LIKE ?",
+        "IFNULL(user_first_name, '') LIKE ?",
+        "IFNULL(user_last_name, '') LIKE ?",
+        "IFNULL(user_phone, '') LIKE ?",
+    ]
+    params.extend(
+        [
+            q,
+            like,
+            like,
+            like,
+            like,
+            like,
+            like,
+            like,
+        ]
+    )
+    if digits:
+        clauses.append("REPLACE(REPLACE(IFNULL(user_phone, ''), '+', ''), ' ', '') LIKE ?")
+        params.append(f"%{digits}%")
+        if len(digits) >= 4:
+            clauses.append("card_number LIKE ?")
+            params.append(f"%{digits}%")
+        if digits == q or (q.isdigit() and len(digits) >= 5):
+            clauses.append("CAST(user_id AS TEXT) LIKE ?")
+            params.append(f"%{digits}%")
+
+    sql = f"""
+        SELECT * FROM users
+        WHERE registered = 1 AND ({' OR '.join(clauses)})
+        ORDER BY COALESCE(last_activity, '') DESC
+        LIMIT ?
+    """
+    params.append(int(limit))
+    rows = cursor.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]

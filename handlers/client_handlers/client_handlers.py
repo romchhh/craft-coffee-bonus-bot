@@ -16,7 +16,7 @@ from keyboards.client_keyboards import (
     get_phone_keyboard,
     get_open_card_inline,
     get_manager_keyboard,
-    get_mailing_prefs_keyboard,
+    get_info_keyboard,
     get_about_keyboard,
     set_webapp_menu,
 )
@@ -30,7 +30,7 @@ from Content.texts import (
     get_about_text,
     get_faq_text,
     get_manager_text,
-    get_mailing_prefs_text,
+    get_info_text,
 )
 from database_functions.client_db import (
     check_user,
@@ -206,7 +206,7 @@ async def _finish_registration(
         return
 
     await state.clear()
-    await message.answer("⏳ Створюємо картку в Craft Coffee…")
+    await message.answer("⏳ Створюємо картку в Крафт Кава…")
 
     try:
         client_id, card_number, bonus_given = await _create_loyalty_card(
@@ -306,7 +306,7 @@ async def _send_registration_success(
             log.info("could not pin registration message: %s", exc)
 
     await message.answer(
-        "Меню бота знизу — картка, бонуси та підтримка.",
+        "Меню бота знизу — картка, Крафтики та підтримка.",
         reply_markup=get_start_keyboard(message.from_user.id, registered=True),
     )
 
@@ -388,7 +388,7 @@ async def open_card_fallback(message: types.Message):
     )
 
 
-@router.message(F.text == "☕ Про Craft Coffee")
+@router.message(F.text.in_(["☕ Про Крафт Кава", "☕ Про Craft Coffee"]))
 async def about(message: types.Message):
     await _ensure_user(message)
     if not is_registered(message.from_user.id):
@@ -402,7 +402,7 @@ async def about(message: types.Message):
     )
 
 
-@router.message(F.text.in_(["🎁 Гривні", "🎁 Бонуси"]))
+@router.message(F.text.in_(["🎁 Гривні", "🎁 Бонуси", "🎁 Крафтики"]))
 async def bonuses_info(message: types.Message):
     await _ensure_user(message)
     if not is_registered(message.from_user.id):
@@ -433,18 +433,18 @@ async def support(message: types.Message):
     )
 
 
-async def _show_mailing_prefs(message: types.Message) -> None:
+async def _show_info(message: types.Message) -> None:
     opted_out = is_mailing_opted_out(message.from_user.id)
     await message.answer(
-        get_mailing_prefs_text(opted_out=opted_out),
+        get_info_text(opted_out=opted_out),
         parse_mode="HTML",
-        reply_markup=get_mailing_prefs_keyboard(opted_out=opted_out),
+        reply_markup=get_info_keyboard(opted_out=opted_out),
     )
 
 
-@router.message(F.text.in_(["🔔 Розсилка"]))
-@router.message(Command("mailing", "unsubscribe", "subscribe"))
-async def mailing_prefs(message: types.Message):
+@router.message(F.text.in_(["ℹ️ Інфо", "🔔 Розсилка"]))
+@router.message(Command("info", "mailing", "unsubscribe", "subscribe"))
+async def info_menu(message: types.Message):
     await _ensure_user(message)
     if not is_registered(message.from_user.id):
         await _prompt_need_card(message)
@@ -454,7 +454,7 @@ async def mailing_prefs(message: types.Message):
         set_mailing_opt_out(message.from_user.id, True)
     elif cmd.startswith("/subscribe"):
         set_mailing_opt_out(message.from_user.id, False)
-    await _show_mailing_prefs(message)
+    await _show_info(message)
 
 
 def _ensure_user_from_tg(user: types.User) -> None:
@@ -476,13 +476,20 @@ async def mailing_opt_out_cb(callback: types.CallbackQuery):
     set_mailing_opt_out(callback.from_user.id, True)
     await callback.answer("Відписано від розсилки", show_alert=True)
     try:
-        await callback.message.answer(
-            get_mailing_prefs_text(opted_out=True),
+        await callback.message.edit_text(
+            get_info_text(opted_out=True),
             parse_mode="HTML",
-            reply_markup=get_mailing_prefs_keyboard(opted_out=True),
+            reply_markup=get_info_keyboard(opted_out=True),
         )
     except Exception:
-        pass
+        try:
+            await callback.message.answer(
+                get_info_text(opted_out=True),
+                parse_mode="HTML",
+                reply_markup=get_info_keyboard(opted_out=True),
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data == "mailing_opt_in")
@@ -492,15 +499,15 @@ async def mailing_opt_in_cb(callback: types.CallbackQuery):
     await callback.answer("Підписку увімкнено", show_alert=True)
     try:
         await callback.message.edit_text(
-            get_mailing_prefs_text(opted_out=False),
+            get_info_text(opted_out=False),
             parse_mode="HTML",
-            reply_markup=get_mailing_prefs_keyboard(opted_out=False),
+            reply_markup=get_info_keyboard(opted_out=False),
         )
     except Exception:
         await callback.message.answer(
-            get_mailing_prefs_text(opted_out=False),
+            get_info_text(opted_out=False),
             parse_mode="HTML",
-            reply_markup=get_mailing_prefs_keyboard(opted_out=False),
+            reply_markup=get_info_keyboard(opted_out=False),
         )
 
 
@@ -531,6 +538,7 @@ async def on_startup(router):
     import asyncio
 
     from config import POSTER_TOKEN
+    from services.backup_cron import start_backup_cron
     from services.loyalty_cron import start_loyalty_cron
 
     me = await bot.get_me()
@@ -543,6 +551,7 @@ async def on_startup(router):
             log.exception("Poster client group sync on startup")
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
+    start_backup_cron(bot)
     log.info("Bot @%s started", me.username)
     if WEBAPP_URL:
         log.info("Mini App: %s", WEBAPP_URL)
@@ -552,8 +561,10 @@ async def on_startup(router):
 
 
 async def on_shutdown(router):
+    from services.backup_cron import stop_backup_cron
     from services.loyalty_cron import stop_loyalty_cron
 
     await stop_loyalty_cron()
+    await stop_backup_cron()
     me = await bot.get_me()
     log.info("Bot @%s stopped", me.username)

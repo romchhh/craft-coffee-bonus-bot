@@ -115,7 +115,7 @@
 
     let title = "Щось пішло не так";
     let hint = "Спробуй ще раз або звернись у підтримку в боті.";
-    let botLabel = "Відкрити бота Craft Coffee";
+    let botLabel = "Відкрити бота Крафт Кава";
 
     if (kind === "session") {
       title = "Не вдалося увійти";
@@ -159,13 +159,54 @@
     return v.toLocaleString("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " грн";
   };
 
-  /** Bonus balance / rewards — no «грн»; rate is only «1 бонус на касі = 1 грн». */
+  /** Balance / rewards — no «грн»; rate is only «1 Крафтик = 1 грн знижки». */
   const fmtBonus = (n) => {
     const v = Number(n || 0);
     return v.toLocaleString("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
 
+  const craftikWord = (n) => {
+    const abs = Math.abs(Math.floor(Number(n) || 0));
+    const mod10 = abs % 10;
+    const mod100 = abs % 100;
+    if (mod10 === 1 && mod100 !== 11) return "Крафтик";
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "Крафтики";
+    return "Крафтиків";
+  };
+
   const hasBirthday = (raw) => Boolean(raw && raw !== "0000-00-00");
+
+  const birthdayEditMsLeft = (me) => {
+    const until = me?.quests?.birthday_editable_until;
+    if (!until) return 0;
+    const t = Date.parse(until);
+    if (!Number.isFinite(t)) return 0;
+    return Math.max(0, t - Date.now());
+  };
+
+  const fmtEditRemain = (ms) => {
+    const totalSec = Math.max(1, Math.ceil(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m <= 0) return `${s} с`;
+    return `${m} хв ${String(s).padStart(2, "0")} с`;
+  };
+
+  let birthdayHideTimer = null;
+  const scheduleBirthdayHide = (me) => {
+    if (birthdayHideTimer) {
+      clearTimeout(birthdayHideTimer);
+      birthdayHideTimer = null;
+    }
+    const ms = birthdayEditMsLeft(me);
+    if (ms > 0 && ms < 24 * 60 * 60 * 1000) {
+      birthdayHideTimer = setTimeout(() => {
+        birthdayHideTimer = null;
+        if (state.me?.quests) state.me.quests.birthday_editable_until = null;
+        render();
+      }, ms + 80);
+    }
+  };
 
   const fmtBirthday = (raw) => {
     if (!hasBirthday(raw)) return "не вказано";
@@ -176,17 +217,24 @@
     return String(raw);
   };
 
-  const cardIdHtml = (cardNumber) => {
+  const cardIdHtml = (cardNumber, name) => {
     // Same digits as Poster bonus card_number (barcode message).
     const digits = String(cardNumber || "").replace(/\D/g, "");
     if (!digits) return "";
     const head = digits.length > 4 ? digits.slice(0, -4) : "";
     const tail = digits.slice(-4);
-    return `<div class="card-id-line" aria-label="Номер картки">
+    const idLine = `<div class="card-id-line" aria-label="Номер картки">
       ${head ? `<span class="card-id-head">${escapeHtml(head)}</span>` : ""}
       <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
       <span class="card-id-label">id</span>
-    </div>
+    </div>`;
+    const meta = name
+      ? `<div class="card-meta-row">
+      <div class="card-holder-name">${escapeHtml(name)}</div>
+      ${idLine}
+    </div>`
+      : idLine;
+    return `${meta}
     <p class="muted card-id-hint">Назви ці 4 цифри на касі, якщо не сканується штрихкод</p>`;
   };
 
@@ -376,6 +424,7 @@
 
   function openBarcodeModal(code) {
     if (!code || !barcodeModal || !barcodeModalSvg) return;
+    closeReferralQrModal();
     paintBarcodeInto(barcodeModalSvg, code, true);
     if (barcodeModalNumber) {
       barcodeModalNumber.innerHTML = cardIdHtml(code);
@@ -384,6 +433,36 @@
     barcodeModal.setAttribute("aria-hidden", "false");
     lockAppScroll();
     barcodeModalClose?.focus();
+  }
+
+  const referralQrModal = document.getElementById("referral-qr-modal");
+  const referralQrCanvas = document.getElementById("referral-qr-canvas");
+  const referralQrBackdrop = document.getElementById("referral-qr-backdrop");
+  const referralQrClose = document.getElementById("referral-qr-close");
+
+  function closeReferralQrModal() {
+    if (!referralQrModal || referralQrModal.hidden) return;
+    referralQrModal.hidden = true;
+    referralQrModal.setAttribute("aria-hidden", "true");
+    unlockAppScroll();
+  }
+
+  function openReferralQrModal(link) {
+    if (!link || !referralQrModal || !referralQrCanvas) return;
+    closeBarcodeModal();
+    if (window.QRCode?.toCanvas) {
+      window.QRCode.toCanvas(referralQrCanvas, link, {
+        width: 240,
+        margin: 2,
+        color: { dark: "#1a120c", light: "#ffffff" },
+      }, (err) => {
+        if (err) console.error("referral qr", err);
+      });
+    }
+    referralQrModal.hidden = false;
+    referralQrModal.setAttribute("aria-hidden", "false");
+    lockAppScroll();
+    referralQrClose?.focus();
   }
 
   function paintBarcodeInto(el, code, large) {
@@ -452,8 +531,9 @@
     const howLine = how
       ? `<p class="muted">Щоб досягнути <strong>${how.target_percent}%</strong>, потрібно <strong>${how.need_charges}</strong> Зарядів. ${escapeHtml(how.per_check || "1 Заряд = чек від 50 грн")}.</p>`
       : `<p class="muted">Максимальний кешбек. Кожен чек від ${L.min_check_uah ?? 50} грн дає 1 Заряд.</p>`;
+    const hintAmt = L.bonus_hint ? Number(L.bonus_hint.amount) : 0;
     const bonusLine = L.bonus_hint
-      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))}</strong> бонусів — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
+      ? `<p class="loyalty-warn">До ${escapeHtml(L.bonus_hint.date)} використай <strong>${escapeHtml(String(L.bonus_hint.amount))}</strong> ${craftikWord(hintAmt)} — інакше вони згорять після ${L.bonus_hint.days_without_purchase} днів без покупок.</p>`
       : "";
 
     const bonusBanner = bonus > 0
@@ -461,9 +541,9 @@
           <span class="loyalty-use-banner-ico">${icon("gift")}</span>
           <span class="loyalty-use-banner-text">
             <strong>${L.bonus_hint
-              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} бонусів`
+              ? `До ${escapeHtml(L.bonus_hint.date)} використай ${escapeHtml(String(L.bonus_hint.amount))} ${craftikWord(hintAmt)}`
               : `На балансі ${escapeHtml(String(Math.floor(bonus * 100) / 100))} — час скористатися`}</strong>
-            <span class="muted">Відкрити заклади Craft Coffee</span>
+            <span class="muted">Відкрити заклади Крафт Кава</span>
           </span>
           <span class="loyalty-use-banner-arrow" aria-hidden="true">${icon("arrow-up-right")}</span>
         </button>`
@@ -506,23 +586,27 @@
     const Q = me.quests || {};
     const bBonus = Q.birthday_bonus_uah ?? 20;
     const bDone = Boolean(Q.birthday_bonus_claimed);
-    const bdayDisplay = hasBirthday(me.birthday) ? fmtBirthday(me.birthday) : "";
-    if (bDone || hasBirthday(me.birthday)) {
-      return `
-      <div class="panel birthday-home done">
-        <div class="quest-card-head">
-          <h3>${icon("cake")} День народження</h3>
-          ${bDone ? `<span class="quest-status">${icon("check")} Отримано</span>` : ""}
-        </div>
-        <p class="muted">${bdayDisplay ? `Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : "Дату збережено."}${bDone ? ` +${escapeHtml(String(bBonus))} нараховано.` : ""}</p>
-      </div>`;
-    }
+    const has = hasBirthday(me.birthday);
+    const msLeft = birthdayEditMsLeft(me);
+    const editable = has && msLeft > 0;
+
+    // After the 10-minute correction window the birthday block disappears.
+    if (has && !editable) return "";
+
+    const isEdit = editable;
+    const saveLabel = isEdit
+      ? "Зберегти нову дату"
+      : `Зберегти та отримати ${craftikWord(bBonus)}`;
+    const hint = isEdit
+      ? `Можна виправити дату ще <strong>${escapeHtml(fmtEditRemain(msLeft))}</strong>. Після цього блок зникне.`
+      : `Вкажи день народження — нарахуємо ${craftikWord(bBonus)} одразу.`;
+
     return `
-      <div class="panel birthday-home">
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
-        <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
-        <div class="birthday-profile-picker" id="profile-birthday-root">
+      <div class="panel birthday-home${isEdit ? " editing" : ""}">
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} ${craftikWord(bBonus)}</div>
+        <h3>${isEdit ? "Перевір дату народження" : "Поділись датою народження"}</h3>
+        <p class="muted">${hint}${bDone && isEdit ? ` Нараховано +${escapeHtml(String(bBonus))}.` : ""}</p>
+        <div class="birthday-profile-picker" id="profile-birthday-root" data-birthday-iso="${escapeHtml(me.birthday || "")}">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
             <label class="date-field"><span>День</span><select data-bd-day></select></label>
@@ -530,14 +614,14 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонуси</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">${saveLabel}</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
       </div>`;
   }
 
-  function renderReferralHome(me) {
+  function renderReferralBlock(me, { asPanel = true } = {}) {
     const Q = me.quests || {};
     const rBonus = Q.referral_bonus_uah ?? 10;
     const refLink = Q.referral_link || "";
@@ -547,22 +631,32 @@
     const refReg = Number(Q.referrals_registered ?? 0);
     const refOk = Number(Q.referrals_successful ?? Q.referrals_count ?? 0);
     const refEarned = Number(Q.referrals_earned_uah ?? 0);
+    const refReview = Number(Q.referrals_owner_review ?? 0);
+    const wrapOpen = asPanel ? `<div class="panel referral-home">` : `<div class="quest-card">`;
+    const wrapClose = `</div>`;
     return `
-      <div class="panel referral-home">
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} за друга</div>
+      ${wrapOpen}
+        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} ${craftikWord(rBonus)} за друга</div>
         <h3>Приведи друга</h3>
-        <ol class="referral-steps muted">
-          <li>Поділись своїм посиланням</li>
+        <button type="button" class="referral-rules-toggle" id="referral-rules-toggle" aria-expanded="false">
+          Правила <span class="referral-rules-chevron" aria-hidden="true">▾</span>
+        </button>
+        <ol class="referral-steps muted" id="referral-steps" hidden>
+          <li>Поділись своїм посиланням або QR-кодом</li>
           <li>Друг реєструється за ним у боті</li>
           <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
-          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))}</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
+          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))} ${craftikWord(rBonus)}</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
         </ol>
-        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))}</strong></p>
+        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))}</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
         <div class="quest-actions">
-          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
+          <button type="button" class="btn-quest" id="show-referral-qr" ${refLink && canInvite ? "" : "disabled"}>QR-код</button>
           <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
         </div>
-      </div>`;
+      ${wrapClose}`;
+  }
+
+  function renderReferralHome(me) {
+    return renderReferralBlock(me, { asPanel: true });
   }
 
   function renderCard() {
@@ -575,10 +669,7 @@
       </div>`;
     }
     const code = me.card_number || "";
-    const initial = (me.name || "?").trim().charAt(0).toUpperCase();
-    const avatar = me.photo_url
-      ? `<img class="avatar" src="${escapeHtml(me.photo_url)}" alt="" width="48" height="48">`
-      : `<div class="avatar avatar-fallback" aria-hidden="true">${escapeHtml(initial)}</div>`;
+    const name = me.name || "";
     return `
       <div class="panel panel-hero">
         ${code ? renderBarcode(code) : `<div class="empty"><p class="muted">Номер картки ще не сформовано</p></div>`}
@@ -586,25 +677,17 @@
           ${icon("maximize-2")}
           Натисни, щоб збільшити штрихкод
         </div>
-        ${cardIdHtml(code)}
-        <div class="card-holder">
-          ${avatar}
-          <div class="card-holder-body">
-            <div class="card-holder-name">${escapeHtml(me.name)}</div>
-          </div>
-        </div>` : `
-        <div class="card-holder">
-          ${avatar}
-          <div class="card-holder-body">
-            <div class="card-holder-name">${escapeHtml(me.name)}</div>
-          </div>
-        </div>`}
+        ${cardIdHtml(code, name)}` : (name
+          ? `<div class="card-meta-row"><div class="card-holder-name">${escapeHtml(name)}</div></div>`
+          : "")}
       </div>
 
       <div class="panel panel-balance">
-        <div class="balance-label">${icon("gift")} Доступні бонуси</div>
+        <div class="balance-label">${icon("gift")} Доступні Крафтики</div>
         <div class="big">${fmtBonus(me.bonus)}</div>
-        <div class="balance-note">1 бонус на касі = 1 грн</div>
+        <div class="balance-note">${me.bonuses_blocked
+          ? "Нарахування тимчасово призупинено — звернись у підтримку"
+          : "1 Крафтик = 1 грн знижки"}</div>
       </div>
 
       ${renderLoyaltyCharge(me)}
@@ -612,11 +695,6 @@
       ${renderBirthdayHome(me)}
 
       ${renderReferralHome(me)}
-
-      <div class="legal-home-links">
-        <button type="button" class="legal-home-link" data-tab-go="rules">${icon("book-open")} Правила програми</button>
-        <button type="button" class="legal-home-link" data-tab-go="privacy">${icon("shield")} Конфіденційність</button>
-      </div>
     `;
   }
 
@@ -643,27 +721,33 @@
     if (!me) return renderCard();
     const Q = me.quests || {};
     const bBonus = Q.birthday_bonus_uah ?? 20;
-    const rBonus = Q.referral_bonus_uah ?? 10;
     const bDone = Boolean(Q.birthday_bonus_claimed);
-    const refLink = Q.referral_link || "";
-    const refCount = Number(Q.referrals_count ?? 0);
     const doneBadge = `<span class="quest-status">${icon("check")} Виконано</span>`;
     const bdayDisplay = hasBirthday(me.birthday) ? fmtBirthday(me.birthday) : "";
     const cycleEnds = Q.cycle_ends ? ` · до ${escapeHtml(Q.cycle_ends)}` : "";
 
     let html = `<div class="section-title"><div class="title-ico">${icon("sparkles")}</div><h2>Квести</h2></div>
-      <p class="muted" style="margin-top:-6px">Завдання з бонусами на баланс${cycleEnds}</p>`;
+      <p class="muted" style="margin-top:-6px">Завдання з Крафтиками на баланс${cycleEnds}</p>`;
 
     const activeParts = [];
     const doneParts = [];
+    const msLeft = birthdayEditMsLeft(me);
+    const bdayEditable = hasBirthday(me.birthday) && msLeft > 0;
 
-    if (!bDone) {
+    if (!hasBirthday(me.birthday) || bdayEditable) {
+      const isEdit = bdayEditable;
+      const saveLabel = isEdit
+        ? "Зберегти нову дату"
+        : `Зберегти та отримати ${craftikWord(bBonus)}`;
+      const hint = isEdit
+        ? `Можна виправити дату ще <strong>${escapeHtml(fmtEditRemain(msLeft))}</strong>.`
+        : `Вкажи день народження — нарахуємо ${craftikWord(bBonus)} одразу.`;
       activeParts.push(`
       <div class="quest-card">
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
-        <h3>Поділись датою народження</h3>
-        <p class="muted">Вкажи день народження — нарахуємо бонуси одразу.</p>
-        <div class="birthday-profile-picker" id="profile-birthday-root">
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} ${craftikWord(bBonus)}</div>
+        <h3>${isEdit ? "Перевір дату народження" : "Поділись датою народження"}</h3>
+        <p class="muted">${hint}${bDone && isEdit ? ` Нараховано +${escapeHtml(String(bBonus))}.` : ""}</p>
+        <div class="birthday-profile-picker" id="profile-birthday-root" data-birthday-iso="${escapeHtml(me.birthday || "")}">
           <div class="birthday-picker-preview" data-bd-preview>ДД.ММ.РРРР</div>
           <div class="date-fields">
             <label class="date-field"><span>День</span><select data-bd-day></select></label>
@@ -671,46 +755,24 @@
             <label class="date-field"><span>Рік</span><select data-bd-year></select></label>
           </div>
           <div class="quest-actions">
-            <button type="button" class="btn-quest" id="save-birthday-btn">Зберегти та отримати бонуси</button>
+            <button type="button" class="btn-quest" id="save-birthday-btn">${saveLabel}</button>
           </div>
         </div>
         <p class="birthday-add-error hidden" id="birthday-error" role="alert"></p>
       </div>`);
-    } else {
+    } else if (bDone) {
       doneParts.push(`
       <div class="quest-card done">
         <div class="quest-card-head">
           <h3>Поділись датою народження</h3>
           ${doneBadge}
         </div>
-        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))}</div>
-        <p class="muted">Бонуси нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
+        <div class="quest-reward">${icon("cake")} +${escapeHtml(String(bBonus))} ${craftikWord(bBonus)}</div>
+        <p class="muted">${craftikWord(bBonus)} нараховано.${bdayDisplay ? ` Дата: <strong>${escapeHtml(bdayDisplay)}</strong>.` : ""}</p>
       </div>`);
     }
 
-    const canInvite = Boolean(Q.referral_can_invite);
-    const minCash = Q.referral_min_cash_uah ?? 50;
-    const windowDays = Q.referral_window_days ?? 30;
-    const refReg = Number(Q.referrals_registered ?? 0);
-    const refOk = Number(Q.referrals_successful ?? refCount);
-    const refEarned = Number(Q.referrals_earned_uah ?? 0);
-    const refReview = Number(Q.referrals_owner_review ?? 0);
-    activeParts.push(`
-      <div class="quest-card">
-        <div class="quest-reward">${icon("users")} +${escapeHtml(String(rBonus))} за друга</div>
-        <h3>Приведи друга</h3>
-        <ol class="referral-steps muted">
-          <li>Поділись своїм посиланням</li>
-          <li>Друг реєструється за ним у боті</li>
-          <li>Друг робить покупку від <strong>${escapeHtml(String(minCash))} грн</strong> (протягом ${escapeHtml(String(windowDays))} днів)</li>
-          <li>Тобі нараховуємо <strong>+${escapeHtml(String(rBonus))}</strong> — на балансі з наступного дня о 00:00 (Київ)</li>
-        </ol>
-        <p class="muted">Зареєстровано: <strong>${refReg}</strong> · успішних: <strong>${refOk}</strong> · отримано: <strong>${escapeHtml(String(refEarned))}</strong>${refReview ? ` · на перевірці: <strong>${refReview}</strong>` : ""}</p>
-        <div class="quest-actions">
-          <button type="button" class="btn-quest" id="copy-referral-link" ${refLink && canInvite ? "" : "disabled"}>Скопіювати</button>
-          <button type="button" class="btn-quest secondary" id="share-referral-link" ${refLink && canInvite ? "" : "disabled"}>Поділитись</button>
-        </div>
-      </div>`);
+    activeParts.push(renderReferralBlock(me, { asPanel: false }));
 
     for (const q of Q.active || []) {
       const reward = Number(q.reward_uah || 0);
@@ -1027,7 +1089,7 @@
           <div class="hist-card hist-card-combined">
             <div class="ico">${icon("shopping-bag")}</div>
             <div class="hist-card-body">
-              <div class="muted">${escapeHtml(fmtDateTime(p.date))} · ${escapeHtml(p.spot || "Craft Coffee")}</div>
+              <div class="muted">${escapeHtml(fmtDateTime(p.date))} · ${escapeHtml(p.spot || "Крафт Кава")}</div>
               <h3>Покупка · ${fmtMoney(p.sum)}</h3>
               <div class="muted" style="margin-top:4px">Сплачено ${fmtMoney(p.payed)}</div>
               ${bonusBlock}
@@ -1051,6 +1113,7 @@
 
   function render() {
     closeBarcodeModal();
+    closeReferralQrModal();
     let html = "";
     try {
       if (state.tab === "card") html = renderCard();
@@ -1070,6 +1133,7 @@
     }
     content.innerHTML = html;
     paintIcons();
+    scheduleBirthdayHide(state.me);
 
     if (state.tab === "menu") {
       try {
@@ -1135,6 +1199,8 @@
     const birthdayError = document.getElementById("birthday-error");
     if (birthdayRoot && saveBirthdayBtn && window.CraftDateFields) {
       const picker = window.CraftDateFields.mount(birthdayRoot);
+      const prefIso = birthdayRoot.getAttribute("data-birthday-iso") || "";
+      if (prefIso) picker.setIso(prefIso);
       saveBirthdayBtn.addEventListener("click", async () => {
         const iso = picker.isoValue();
         if (!iso) {
@@ -1166,25 +1232,29 @@
       });
     }
 
-    const refLink = state.me?.quests?.referral_link || "";
-    const copyRef = document.getElementById("copy-referral-link");
-    if (copyRef && refLink) {
-      copyRef.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(refLink);
-          copyRef.textContent = "Скопійовано ✓";
-          setTimeout(() => { copyRef.textContent = "Скопіювати"; }, 2000);
-        } catch (_) {
-          window.prompt("Скопіюй посилання:", refLink);
-        }
+    const rulesToggle = document.getElementById("referral-rules-toggle");
+    const rulesList = document.getElementById("referral-steps");
+    if (rulesToggle && rulesList) {
+      rulesToggle.addEventListener("click", () => {
+        const open = rulesToggle.getAttribute("aria-expanded") === "true";
+        const next = !open;
+        rulesToggle.setAttribute("aria-expanded", next ? "true" : "false");
+        rulesList.hidden = !next;
+        rulesToggle.classList.toggle("open", next);
       });
+    }
+
+    const refLink = state.me?.quests?.referral_link || "";
+    const showQr = document.getElementById("show-referral-qr");
+    if (showQr && refLink) {
+      showQr.addEventListener("click", () => openReferralQrModal(refLink));
     }
     const shareRef = document.getElementById("share-referral-link");
     if (shareRef && refLink) {
       shareRef.addEventListener("click", () => {
-        const text = "Оформи картку Craft Coffee — бонуси на баланс за каву ☕";
+        const text = "Оформи картку Крафт Кава — Крафтики на баланс за каву ☕";
         if (navigator.share) {
-          navigator.share({ title: "Craft Coffee", text, url: refLink }).catch(() => {});
+          navigator.share({ title: "Крафт Кава", text, url: refLink }).catch(() => {});
         } else if (tg?.openTelegramLink) {
           tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`);
         } else {
@@ -1309,10 +1379,16 @@
   if (barcodeModalClose) {
     barcodeModalClose.addEventListener("click", closeBarcodeModal);
   }
+  if (referralQrBackdrop) {
+    referralQrBackdrop.addEventListener("click", closeReferralQrModal);
+  }
+  if (referralQrClose) {
+    referralQrClose.addEventListener("click", closeReferralQrModal);
+  }
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && barcodeModal && !barcodeModal.hidden) {
-      closeBarcodeModal();
-    }
+    if (e.key !== "Escape") return;
+    if (barcodeModal && !barcodeModal.hidden) closeBarcodeModal();
+    if (referralQrModal && !referralQrModal.hidden) closeReferralQrModal();
   });
 
   paintIcons(tabs);

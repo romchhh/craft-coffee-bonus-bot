@@ -46,3 +46,8 @@ class SpotsAdmin(StatesGroup):
     edit_maps = State()
     edit_photo = State()
     edit_sort = State()
+
+
+class ClientAdmin(StatesGroup):
+    search = State()
+    gift_amount = State()

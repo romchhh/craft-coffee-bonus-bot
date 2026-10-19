@@ -73,14 +73,17 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     payed_sum_uah = poster.from_minor(tx.get("payed_sum"))  # cash + card
     bonus_spent_uah = poster.from_minor(tx.get("payed_bonus") or 0)
     percent = get_cashback_percent_for_user(int(user["user_id"]))
-    bonus_uah = _round_bonus(payed_sum_uah * percent / 100.0)
+    bonuses_blocked = bool(int(user.get("bonuses_blocked") or 0))
+    bonus_uah = 0.0 if bonuses_blocked else _round_bonus(payed_sum_uah * percent / 100.0)
     log.info(
-        "loyalty tx=%s client_id=%s spot_id=%s payed=%.2f user=%s",
+        "loyalty tx=%s client_id=%s spot_id=%s payed=%.2f user=%s blocked=%s cashback=%.2f",
         tid,
         client_id,
         spot_id,
         payed_sum_uah,
         user["user_id"],
+        bonuses_blocked,
+        bonus_uah,
     )
 
     closed_raw = tx.get("date_close_date") or tx.get("date_close") or ""
@@ -235,13 +238,13 @@ async def _send_thanks(
             f"Нараховано кешбек {percent:g}%: <b>+{bonus_uah:g}</b>."
             f"{balance_line}"
             f"{mini_line}\n\n"
-            "Гарного дня від Craft Coffee 🤎"
+            "Гарного дня від Крафт Кава 🤎"
         )
     else:
         text = (
             f"☕ Дякуємо за замовлення{who}!\n\n"
             f"Сума покупки: <b>{payed_sum_uah:g} грн</b>\n"
-            "Чекаємо знову в Craft Coffee!"
+            "Чекаємо знову в Крафт Кава!"
             f"{mini_line}"
         )
     await bot.send_message(

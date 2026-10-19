@@ -226,6 +226,12 @@ def grant_pending_referral(ref: dict) -> dict[str, Any]:
     referrer = get_user(ref["referrer_user_id"])
     if not referrer or not referrer.get("poster_client_id"):
         return {"status": "error", "reason": "no_referrer_poster"}
+    if int(referrer.get("bonuses_blocked") or 0):
+        log.info(
+            "referral grant skipped — referrer blocked user=%s",
+            referrer.get("user_id"),
+        )
+        return {"status": "skip", "reason": "referrer_blocked"}
 
     amount = float(ref.get("amount_uah") or 0)
     friend_id = int(ref["friend_user_id"])

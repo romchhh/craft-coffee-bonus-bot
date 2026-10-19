@@ -1,4 +1,4 @@
-"""Generate a signed Apple Wallet (.pkpass) for Craft Coffee card."""
+"""Generate a signed Apple Wallet (.pkpass) for Крафт Кава card."""
 from __future__ import annotations
 
 import hashlib
@@ -37,7 +37,7 @@ def _support_label() -> str:
 
         return f"@{get_support_username()}"
     except Exception:
-        return WEBAPP_URL or "Craft Coffee"
+        return WEBAPP_URL or "Крафт Кава"
 
 
 class AppleWalletError(Exception):
@@ -137,8 +137,8 @@ def build_pass_json(
         "serialNumber": serial,
         "teamIdentifier": APPLE_TEAM_ID,
         "organizationName": APPLE_ORG_NAME,
-        "description": "Картка лояльності Craft Coffee",
-        "logoText": "Craft Coffee",
+        "description": "Картка лояльності Крафт Кава",
+        "logoText": "Крафт Кава",
         "foregroundColor": "rgb(255, 248, 241)",
         "backgroundColor": "rgb(28, 20, 16)",
         "labelColor": "rgb(240, 163, 90)",
@@ -160,7 +160,7 @@ def build_pass_json(
             "headerFields": [
                 {
                     "key": "bonus",
-                    "label": "БОНУСИ",
+                    "label": "КРАФТИКИ",
                     "value": f"{bonus:g}",
                 }
             ],
@@ -188,7 +188,7 @@ def build_pass_json(
                 {
                     "key": "info",
                     "label": "Про програму",
-                    "value": "1 бонус на касі = 1 грн. Покажи штрихкод у Craft Coffee.",
+                    "value": "1 Крафтик = 1 грн знижки. Покажи штрихкод у Крафт Кава.",
                 },
                 {
                     "key": "support",

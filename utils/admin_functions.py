@@ -418,6 +418,10 @@ def format_statistics_message():
     if poster_bal["poster_errors"]:
         poster_line += f"\n   ⚠️ Не вдалося оновити {poster_bal['poster_errors']} карток"
 
+    from database_functions.client_db import count_bonuses_blocked
+
+    blocked_n = count_bonuses_blocked()
+
     message = f"""<b>📊 ДЕТАЛЬНА СТАТИСТИКА БОТА</b>
 
 <b>👥 ЗАГАЛЬНА ІНФОРМАЦІЯ</b>
@@ -429,8 +433,9 @@ def format_statistics_message():
 • Купували (чеки через бот): <b>{loyalty['buyers_unique']}</b>
 • Повертаються (≥2 покупки): <b>{loyalty['returning_clients']}</b> — <b>{loyalty['return_rate_percent']:.1f}%</b> від покупців
 • Чеків загалом: <b>{loyalty['purchases_total']}</b> на <b>{_uah(loyalty['payed_total_uah'])} грн</b>
+• З блокуванням Крафтиків: <b>{blocked_n}</b> · картки — меню <b>👤 Клієнти</b>
 
-<b>🎁 ГРИВНІ НА БАЛАНСІ</b>
+<b>🎁 КРАФТИКИ НА БАЛАНСІ</b>
 • Нараховано кешбеку (бот): <b>{_uah(loyalty['cashback_accrued_uah'])} грн</b>
 • Списано в чеках: <b>{_uah(loyalty['bonus_spent_uah'])} грн</b>
 • Вітальні: <b>{loyalty['welcome_count']}</b> видач (~<b>{_uah(loyalty['welcome_total_est_uah'])} грн</b> за поточним тарифом)

@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Craft Coffee</title>
+  <title>Крафт Кава</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0"></script>
-  <link rel="stylesheet" href="/static/style.css?v=31">
+  <link rel="stylesheet" href="/static/style.css?v=36">
 </head>
 <body>
   <div id="app" class="surface">
@@ -33,8 +34,8 @@
         <span class="tab-label">Головна</span>
       </button>
       <button type="button" data-tab="menu">
-        <i data-lucide="utensils" class="tab-icon"></i>
-        <span class="tab-label">Меню</span>
+        <span class="tab-emoji" aria-hidden="true">☕</span>
+        <span class="tab-label">пропозиції</span>
       </button>
       <button type="button" data-tab="spots">
         <i data-lucide="map-pin" class="tab-icon"></i>
@@ -56,13 +57,27 @@
         <div class="barcode-modal-code">
           <svg id="barcode-modal-svg" aria-hidden="true"></svg>
         </div>
-        <p class="barcode-modal-hint">Покажи на касі Craft Coffee</p>
+        <p class="barcode-modal-hint">Покажи на касі Крафт Кава</p>
         <p class="barcode-modal-number" id="barcode-modal-number"></p>
+      </div>
+    </div>
+
+    <div id="referral-qr-modal" class="barcode-modal" hidden aria-hidden="true">
+      <button type="button" class="barcode-modal-backdrop" id="referral-qr-backdrop" aria-label="Закрити"></button>
+      <div class="barcode-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="referral-qr-title">
+        <div class="barcode-modal-head">
+          <h2 id="referral-qr-title">QR для друга</h2>
+          <button type="button" class="barcode-modal-close" id="referral-qr-close" aria-label="Закрити">✕</button>
+        </div>
+        <div class="referral-qr-code">
+          <canvas id="referral-qr-canvas" width="240" height="240" aria-label="QR-код запрошення"></canvas>
+        </div>
+        <p class="barcode-modal-hint">Нехай друг відсканує іншим телефоном</p>
       </div>
     </div>
   </div>
   <script src="/static/date-fields.js"></script>
-  <script src="/static/legal.js?v=31"></script>
-  <script src="/static/app.js?v=31"></script>
+  <script src="/static/legal.js?v=36"></script>
+  <script src="/static/app.js?v=36"></script>
 </body>
 </html>
