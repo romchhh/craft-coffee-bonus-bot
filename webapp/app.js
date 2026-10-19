@@ -74,6 +74,8 @@
   let menuNavLockTimer = null;
   let appReady = false;
   let menuLoading = false;
+  let spotsLoading = false;
+  let historyLoading = false;
   let appMeta = null;
   let lastVisibilityReload = 0;
 
@@ -526,6 +528,12 @@
       loadMenu();
       return;
     }
+    if (tab === "spots" && (!state.spots || state.spots.length === 0) && !spotsLoading) {
+      loadSpots(true);
+    }
+    if (tab === "history" && !state.history && !historyLoading) {
+      loadHistory(true);
+    }
     render();
     content.scrollTop = 0;
   }
@@ -863,8 +871,12 @@
         ${icon("instagram")} Шукай нас в Instagram
       </a>`;
     }
+    if (spotsLoading && !spots.length) {
+      return html + `<div class="loader"><div class="loader-icon">${icon("map-pin")}</div><p>Завантажуємо заклади…</p></div>`;
+    }
     if (!spots.length) {
-      return html + `<div class="empty"><div class="empty-ico">${icon("map")}</div><p class="muted">Адреси скоро з’являться</p></div>`;
+      return html + `<div class="empty"><div class="empty-ico">${icon("map")}</div><p class="muted">Адреси скоро з’являться</p>
+        <button type="button" class="btn-retry" id="spots-retry-btn">${icon("refresh-cw")} Оновити</button></div>`;
     }
     html += spots.map((s, i) => {
       const maps = s.maps_url ? ` data-maps-url="${escapeHtml(s.maps_url)}"` : "";
@@ -1210,6 +1222,11 @@
       });
     });
 
+    const spotsRetry = document.getElementById("spots-retry-btn");
+    if (spotsRetry) {
+      spotsRetry.addEventListener("click", () => loadSpots(true));
+    }
+
     const goSpots = document.getElementById("go-spots-from-bonus");
     if (goSpots) {
       goSpots.addEventListener("click", () => setTab("spots"));
@@ -1316,18 +1333,42 @@
     }
   }
 
-  async function loadSecondaryData() {
+  async function loadSpots(force = false) {
+    if (spotsLoading && !force) return;
+    spotsLoading = true;
+    if (state.tab === "spots" && appReady) render();
     try {
-      const [spots, history] = await Promise.all([api("/spots"), api("/history")]);
-      state.spots = spots.items || [];
-      state.spotsInstagram = spots.instagram_url || "";
-      state.history = history;
-      if (state.tab === "spots" || state.tab === "history") render();
+      const spots = await api("/spots");
+      state.spots = Array.isArray(spots?.items) ? spots.items : [];
+      state.spotsInstagram = spots?.instagram_url || "";
     } catch (e) {
-      console.warn("secondary load", e);
-      if (!state.spots) state.spots = [];
-      if (!state.history) state.history = { purchases: [], bonuses: [] };
+      console.warn("spots load", e);
+      if (!Array.isArray(state.spots)) state.spots = [];
+    } finally {
+      spotsLoading = false;
+      if (appReady && state.tab === "spots") render();
     }
+  }
+
+  async function loadHistory(force = false) {
+    if (historyLoading && !force) return;
+    historyLoading = true;
+    try {
+      const history = await api("/history");
+      state.history = history || { purchases: [], bonuses: [] };
+    } catch (e) {
+      console.warn("history load", e);
+      if (!state.history) state.history = { purchases: [], bonuses: [] };
+    } finally {
+      historyLoading = false;
+      if (appReady && state.tab === "history") render();
+    }
+  }
+
+  function loadSecondaryData() {
+    // Load independently so a slow/broken Poster history never blocks venues.
+    loadSpots();
+    loadHistory();
   }
 
   function setLoaderMessage(text) {

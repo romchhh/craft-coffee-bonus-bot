@@ -491,9 +491,12 @@ async def api_poster_media(request: web.Request) -> web.Response:
 
 
 async def api_spots(request: web.Request) -> web.Response:
+    """Venues from admin «📍 Точки» (SQLite spots), never Poster access.getSpots."""
     _auth_user(request)
     from Content.locations import INSTAGRAM_URL, locations_for_api
+    from database_functions.spots_db import create_spots_table
 
+    create_spots_table()
     return web.json_response(
         {
             "items": locations_for_api(),
