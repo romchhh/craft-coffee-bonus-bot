@@ -219,27 +219,31 @@
     return String(raw);
   };
 
-  const cardIdHtml = (cardNumber, name, avatarHtml = "") => {
-    // Same digits as Poster bonus card_number (barcode message).
+  const cardHolderHtml = (name, avatarHtml = "") => {
+    if (!name && !avatarHtml) return "";
+    return `<div class="card-holder-row">
+      ${avatarHtml || ""}
+      ${name ? `<div class="card-holder-name">${escapeHtml(name)}</div>` : ""}
+    </div>`;
+  };
+
+  const cardIdBlock = (cardNumber) => {
     const digits = String(cardNumber || "").replace(/\D/g, "");
     if (!digits) return "";
     const head = digits.length > 4 ? digits.slice(0, -4) : "";
     const tail = digits.slice(-4);
-    const idLine = `<div class="card-id-line" aria-label="Номер картки">
-      ${head ? `<span class="card-id-head">${escapeHtml(head)}</span>` : ""}
-      <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
-      <span class="card-id-label">id</span>
+    return `<div class="card-id-block">
+      <div class="card-id-line" aria-label="Номер картки">
+        ${head ? `<span class="card-id-head">${escapeHtml(head)}</span>` : ""}
+        <span class="card-id-tail" aria-label="Останні 4 цифри">${escapeHtml(tail)}</span>
+        <span class="card-id-label">id</span>
+      </div>
+      <p class="muted card-id-hint">Якщо штрихкод не сканується — назви останні 4 цифри на касі</p>
     </div>`;
-    const meta = (name || avatarHtml)
-      ? `<div class="card-meta-row">
-      ${avatarHtml || ""}
-      ${name ? `<div class="card-holder-name">${escapeHtml(name)}</div>` : ""}
-      ${idLine}
-    </div>`
-      : idLine;
-    return `${meta}
-    <p class="muted card-id-hint">Назви ці 4 цифри на касі, якщо не сканується штрихкод</p>`;
   };
+
+  const cardIdHtml = (cardNumber, name, avatarHtml = "") =>
+    `${cardHolderHtml(name, avatarHtml)}${cardIdBlock(cardNumber)}`;
 
   const fmtDateTime = (raw) => {
     if (!raw || raw === "—") return "—";
@@ -511,12 +515,20 @@
   function paintBarcodeInto(el, code, large) {
     if (!el || !window.JsBarcode || !code) return;
     const format = code.length === 13 ? "EAN13" : "CODE128";
+    const host = el.parentElement;
+    const hostWidth = host?.clientWidth || (large ? 360 : 320);
+    const margin = large ? 12 : 2;
+    const avail = Math.max(220, hostWidth - margin * 2 - (large ? 24 : 12));
+    const height = large ? 210 : 100;
+    const charLen = String(code).length;
+    const modules = format === "EAN13" ? 95 : (charLen + 2) * 11 + 35;
+    const barWidth = Math.min(3.6, Math.max(1.4, avail / modules));
     const opts = {
       format,
       displayValue: false,
-      margin: large ? 8 : 6,
-      height: large ? 220 : 72,
-      width: large ? 2.8 : 2,
+      margin,
+      height,
+      width: barWidth,
       background: "#ffffff",
       lineColor: "#35221A",
     };
@@ -525,11 +537,10 @@
     } catch (_) {
       JsBarcode(el, code, { ...opts, format: "CODE128" });
     }
-    if (large) {
-      el.style.width = "100%";
-      el.style.height = "auto";
-      el.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    }
+    el.style.width = "100%";
+    el.style.height = "auto";
+    el.style.display = "block";
+    el.setAttribute("preserveAspectRatio", "xMidYMid meet");
   }
 
   function setTab(tab) {
@@ -766,13 +777,16 @@
       : `<div class="avatar avatar-sm avatar-fallback" aria-hidden="true">${escapeHtml(initial)}</div>`;
     return `
       <div class="panel panel-hero">
-        ${code ? renderBarcode(code) : `<div class="empty"><p class="muted">Номер картки ще не сформовано</p></div>`}
-        ${code ? `<div class="tap-hint">
+        ${code ? `
+        ${cardHolderHtml(name, avatar)}
+        ${renderBarcode(code)}
+        ${cardIdBlock(code)}
+        <div class="tap-hint">
           ${icon("maximize-2")}
-          Натисни, щоб збільшити штрихкод
-        </div>
-        ${cardIdHtml(code, name, avatar)}` : `
-        <div class="card-meta-row">
+          Натисни на штрихкод, щоб відкрити на весь екран
+        </div>` : `
+        <div class="empty"><p class="muted">Номер картки ще не сформовано</p></div>
+        <div class="card-holder-row">
           ${avatar}
           ${name ? `<div class="card-holder-name">${escapeHtml(name)}</div>` : ""}
         </div>`}
@@ -1250,7 +1264,10 @@
     }
 
     if (state.tab === "card" && state.me?.card_number) {
-      requestAnimationFrame(() => paintBarcode(state.me.card_number));
+      requestAnimationFrame(() => {
+        paintBarcode(state.me.card_number);
+        requestAnimationFrame(() => paintBarcode(state.me.card_number));
+      });
     }
     const barcode = document.getElementById("barcode-btn");
     if (barcode) {

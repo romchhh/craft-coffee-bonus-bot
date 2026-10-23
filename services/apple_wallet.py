@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import logging
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -139,6 +140,15 @@ def _ensure_assets() -> dict[str, bytes]:
     return files
 
 
+def _barcode_alt_text(card_number: str) -> str:
+    digits = re.sub(r"\D", "", card_number)
+    if len(digits) == 13:
+        return f"{digits[0]} {digits[1:7]} {digits[7:13]}"
+    if len(digits) == 8:
+        return f"{digits[:4]} {digits[4:]}"
+    return card_number
+
+
 def build_pass_json(
     *,
     serial: str,
@@ -155,7 +165,7 @@ def build_pass_json(
         "teamIdentifier": APPLE_TEAM_ID,
         "organizationName": APPLE_ORG_NAME,
         "description": "Картка лояльності Крафт Кава",
-        "logoText": "Крафт Кава",
+        "logoText": "",
         "foregroundColor": "rgb(53, 34, 26)",
         "backgroundColor": "rgb(248, 245, 238)",
         "labelColor": "rgb(122, 101, 88)",
@@ -163,39 +173,34 @@ def build_pass_json(
             "format": barcode_format,
             "message": card_number,
             "messageEncoding": "iso-8859-1",
-            "altText": card_number,
+            "altText": _barcode_alt_text(card_number),
         },
         "barcodes": [
             {
                 "format": barcode_format,
                 "message": card_number,
                 "messageEncoding": "iso-8859-1",
-                "altText": card_number,
+                "altText": _barcode_alt_text(card_number),
             }
         ],
         "storeCard": {
             "headerFields": [
                 {
                     "key": "bonus",
-                    "label": "КРАФТИКИ",
+                    "label": "Крафтики",
                     "value": f"{bonus:g}",
+                    "textAlignment": "PKTextAlignmentRight",
                 }
             ],
-            "primaryFields": [],
-            "secondaryFields": [
+            "primaryFields": [
                 {
                     "key": "member",
-                    "label": "ВЛАСНИК",
+                    "label": "Власник",
                     "value": name,
                 }
             ],
-            "auxiliaryFields": [
-                {
-                    "key": "card",
-                    "label": "НОМЕР КАРТКИ",
-                    "value": card_number,
-                }
-            ],
+            "secondaryFields": [],
+            "auxiliaryFields": [],
             "backFields": [
                 {
                     "key": "phone",
