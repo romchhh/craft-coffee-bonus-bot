@@ -984,8 +984,8 @@ body.barcode-modal-open .surface {
   margin: 18px 0 6px;
   min-height: 56px;
   border-radius: 16px;
-  border: 1px solid #2a2a2a;
-  background: #000;
+  border: 1px solid var(--espresso);
+  background: var(--espresso);
   color: #fff;
   font: inherit;
   font-size: 16px;
@@ -994,20 +994,111 @@ body.barcode-modal-open .surface {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.wallet-btn-content,
+.wallet-btn-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.wallet-btn.loading .wallet-btn-content {
+  display: none;
+}
+
+.wallet-btn.loading .wallet-btn-loading {
+  display: inline-flex !important;
+}
+
+.wallet-btn-loading.hidden {
+  display: none;
 }
 
 .wallet-btn .apple-logo {
   width: 20px;
   height: 20px;
   display: block;
+  flex-shrink: 0;
+}
+
+.wallet-btn-spinner,
+.wallet-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: wallet-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.wallet-loading-spinner {
+  border-color: rgba(53, 34, 26, 0.15);
+  border-top-color: var(--espresso);
+  margin: 0 auto 12px;
+}
+
+@keyframes wallet-spin {
+  to { transform: rotate(360deg); }
 }
 
 .wallet-btn:active { transform: scale(0.98); }
 .wallet-btn:disabled,
 .wallet-btn.loading {
-  opacity: 0.55;
+  opacity: 0.92;
+}
+
+.wallet-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(53, 34, 26, 0.42);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.wallet-loading[hidden] {
+  display: none !important;
+}
+
+body.wallet-loading-open {
+  overflow: hidden;
+  touch-action: none;
+}
+
+.wallet-loading-sheet {
+  width: min(100%, 300px);
+  padding: 26px 22px 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.wallet-loading-logo {
+  display: block;
+  height: 40px;
+  width: auto;
+  max-width: 200px;
+  margin: 0 auto 18px;
+  object-fit: contain;
+}
+
+.wallet-loading-text {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.4;
 }
 
 .wallet-hint {

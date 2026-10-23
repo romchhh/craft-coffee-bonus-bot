@@ -12,7 +12,7 @@ from typing import Any
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs7
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from config import (
     APPLE_ORG_NAME,
@@ -27,8 +27,14 @@ from config import (
 
 log = logging.getLogger(__name__)
 
-CERTS_DIR = Path("certs")
-ASSETS_DIR = Path("webapp/wallet_assets")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BRAND_LOGO_PATH = PROJECT_ROOT / "webapp" / "assets" / "brand-logo.png"
+ASSETS_DIR = PROJECT_ROOT / "webapp" / "wallet_assets"
+
+# Match mini app palette
+BRAND_CREAM = (248, 245, 238)  # #F8F5EE
+BRAND_INK = (53, 34, 26)  # #35221A
+BRAND_SUB = (122, 101, 88)  # #7A6558
 
 
 def _support_label() -> str:
@@ -75,49 +81,60 @@ def _load_cert(path: str):
     return x509.load_pem_x509_certificate(Path(path).read_bytes())
 
 
-def _ensure_assets() -> dict[str, bytes]:
-    """Minimal PNGs for the pass (icon / logo)."""
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    files: dict[str, bytes] = {}
+def _png_bytes(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
 
-    specs = {
-        "icon.png": 58,
-        "paula.r@example.org": 116,
+
+def _load_brand_rgba() -> Image.Image:
+    if BRAND_LOGO_PATH.is_file():
+        return Image.open(BRAND_LOGO_PATH).convert("RGBA")
+    raise AppleWalletError(f"Не знайдено логотип: {BRAND_LOGO_PATH}")
+
+
+def _fit_on_canvas(
+    src: Image.Image,
+    size: tuple[int, int],
+    *,
+    bg: tuple[int, int, int] | None = BRAND_CREAM,
+    pad: int = 4,
+) -> Image.Image:
+    w, h = size
+    if bg is None:
+        canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    else:
+        canvas = Image.new("RGBA", (w, h), (*bg, 255))
+
+    max_w = max(1, w - pad * 2)
+    max_h = max(1, h - pad * 2)
+    fitted = src.copy()
+    fitted.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+    x = (w - fitted.width) // 2
+    y = (h - fitted.height) // 2
+    canvas.alpha_composite(fitted, (x, y))
+    return canvas
+
+
+def _ensure_assets() -> dict[str, bytes]:
+    """PassKit images from brand logo (icon + logo @1x/@2x/@3x)."""
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    src = _load_brand_rgba()
+
+    specs: dict[str, tuple[int, int]] = {
+        "icon.png": (29, 29),
+        "icon@2x.png": (58, 58),
+        "icon@3x.png": (87, 87),
         "logo.png": (160, 50),
-        "paula.r@example.org": (320, 100),
+        "logo@2x.png": (320, 100),
     }
 
+    files: dict[str, bytes] = {}
     for name, size in specs.items():
-        path = ASSETS_DIR / name
-        if path.exists():
-            files[name] = path.read_bytes()
-            continue
-
-        if isinstance(size, tuple):
-            w, h = size
-        else:
-            w = h = size
-
-        img = Image.new("RGB", (w, h), (28, 20, 16))
-        draw = ImageDraw.Draw(img)
-        # round cup blot
-        margin = max(4, min(w, h) // 8)
-        draw.ellipse((margin, margin, w - margin, h - margin), fill=(196, 106, 43))
-        # letter K
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", max(14, h // 2))
-        except Exception:
-            font = ImageFont.load_default()
-        text = "K"
-        bbox = draw.textbbox((0, 0), text, font=font)
-        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        draw.text(((w - tw) / 2, (h - th) / 2 - 2), text, fill=(255, 248, 241), font=font)
-
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        data = buf.getvalue()
-        path.write_bytes(data)
+        img = _fit_on_canvas(src, size, bg=BRAND_CREAM, pad=max(2, min(size) // 10))
+        data = _png_bytes(img)
         files[name] = data
+        (ASSETS_DIR / name).write_bytes(data)
 
     return files
 
@@ -139,9 +156,9 @@ def build_pass_json(
         "organizationName": APPLE_ORG_NAME,
         "description": "Картка лояльності Крафт Кава",
         "logoText": "Крафт Кава",
-        "foregroundColor": "rgb(255, 248, 241)",
-        "backgroundColor": "rgb(28, 20, 16)",
-        "labelColor": "rgb(240, 163, 90)",
+        "foregroundColor": "rgb(53, 34, 26)",
+        "backgroundColor": "rgb(248, 245, 238)",
+        "labelColor": "rgb(122, 101, 88)",
         "barcode": {
             "format": barcode_format,
             "message": card_number,
@@ -226,7 +243,6 @@ def create_pkpass(
     files = {"pass.json": json.dumps(pass_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
     files.update(_ensure_assets())
 
-    # manifest: SHA1 of each file (PassKit requirement)
     manifest = {
         name: hashlib.sha1(content).hexdigest()
         for name, content in files.items()

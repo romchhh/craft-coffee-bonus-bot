@@ -708,6 +708,26 @@
     return renderReferralBlock(me, { asPanel: true });
   }
 
+  function setWalletLoading(on) {
+    let el = document.getElementById("wallet-loading");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "wallet-loading";
+      el.className = "wallet-loading";
+      el.hidden = true;
+      el.innerHTML = `
+        <div class="wallet-loading-sheet" role="status" aria-live="polite" aria-busy="true">
+          <img class="wallet-loading-logo" src="/static/assets/brand-logo.png" alt="Крафт Кава" width="148" height="48" decoding="async">
+          <div class="wallet-loading-spinner" aria-hidden="true"></div>
+          <p class="wallet-loading-text">Готуємо картку для Apple Wallet…</p>
+        </div>`;
+      (document.querySelector(".surface") || document.body).appendChild(el);
+    }
+    el.hidden = !on;
+    el.setAttribute("aria-hidden", on ? "false" : "true");
+    document.body.classList.toggle("wallet-loading-open", on);
+  }
+
   function renderAppleWalletButton(me) {
     if (!shouldShowAppleWalletButton(me)) return "";
     const onPhone = isAppleWalletPlatform();
@@ -716,8 +736,14 @@
       : "";
     return `
       <button type="button" class="wallet-btn" id="add-apple-wallet-btn">
-        ${appleLogoSvg()}
-        Додати в Apple Wallet
+        <span class="wallet-btn-content">
+          ${appleLogoSvg()}
+          <span class="wallet-btn-label">Додати в Apple Wallet</span>
+        </span>
+        <span class="wallet-btn-loading hidden" aria-hidden="true">
+          <span class="wallet-btn-spinner"></span>
+          <span>Завантаження…</span>
+        </span>
       </button>
       <p class="wallet-hint muted hidden" id="wallet-hint" role="status"></p>
       ${hintDesktop}`;
@@ -1275,6 +1301,7 @@
         if (walletBtn.classList.contains("loading")) return;
         walletBtn.classList.add("loading");
         walletBtn.disabled = true;
+        setWalletLoading(true);
         if (walletHint) {
           walletHint.textContent = "";
           walletHint.classList.add("hidden");
@@ -1293,6 +1320,7 @@
         } finally {
           walletBtn.classList.remove("loading");
           walletBtn.disabled = false;
+          setWalletLoading(false);
         }
       });
     }
