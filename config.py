@@ -62,10 +62,10 @@ WEBAPP_DEV = getenv("WEBAPP_DEV", "0") == "1"
 APPLE_PASS_TYPE_ID = getenv("APPLE_PASS_TYPE_ID", "")
 APPLE_TEAM_ID = getenv("APPLE_TEAM_ID", "")
 APPLE_ORG_NAME = getenv("APPLE_ORG_NAME", "Крафт Кава")
-APPLE_PASS_CERT = getenv("APPLE_PASS_CERT", "certs/pass_cert.pem")
-APPLE_PASS_KEY = getenv("APPLE_PASS_KEY", "certs/pass_key.pem")
+APPLE_PASS_CERT = getenv("APPLE_PASS_CERT", "apple_wallet_certs/pass_cert.pem")
+APPLE_PASS_KEY = getenv("APPLE_PASS_KEY", "apple_wallet_certs/pass_key.pem")
 APPLE_PASS_KEY_PASSWORD = getenv("APPLE_PASS_KEY_PASSWORD", "")
-APPLE_WWDR_CERT = getenv("APPLE_WWDR_CERT", "certs/wwdr.pem")
+APPLE_WWDR_CERT = getenv("APPLE_WWDR_CERT", "apple_wallet_certs/wwdr.pem")
 APPLE_WALLET_SECRET = getenv("APPLE_WALLET_SECRET") or (token or "craft-wallet-secret")
 
 # Poster webhooks (application secret from developer cabinet; optional)

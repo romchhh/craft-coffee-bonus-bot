@@ -26,4 +26,12 @@ certs/*.key
 certs/*.p12
 certs/*.pem
 !certs/.gitkeep
+
+# Apple Wallet (Pass Type ID) — локально, не в git
+apple_wallet_certs/*
+!apple_wallet_certs/.gitkeep
+pass.cer
+pass.key
+pass.csr
+
 !logs/.gitkeep

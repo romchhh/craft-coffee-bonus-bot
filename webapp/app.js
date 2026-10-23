@@ -258,6 +258,13 @@
 
   const icon = (name) => `<i data-lucide="${name}"></i>`;
 
+  const appleLogoSvg = () => `<svg class="apple-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>`;
+
+  function isAppleWalletPlatform() {
+    const p = String(tg?.platform || "").toLowerCase();
+    return p === "ios" || !tg;
+  }
+
   const catIcon = (cat = "") => {
     const c = cat.toLowerCase();
     if (/кав|кофе|coffee|еспрес|латте|капуч|американо|раф/.test(c)) return "coffee";
@@ -689,6 +696,16 @@
     return renderReferralBlock(me, { asPanel: true });
   }
 
+  function renderAppleWalletButton(me) {
+    if (!me?.card_number || !me.wallet?.configured || !isAppleWalletPlatform()) return "";
+    return `
+      <button type="button" class="wallet-btn" id="add-apple-wallet-btn">
+        ${appleLogoSvg()}
+        Додати в Apple Wallet
+      </button>
+      <p class="wallet-hint muted hidden" id="wallet-hint" role="status"></p>`;
+  }
+
   function renderCard() {
     const me = state.me;
     if (!me) {
@@ -725,6 +742,8 @@
           ? "Нарахування тимчасово призупинено — звернись у підтримку"
           : "1 Крафтик = 1 грн знижки"}</div>
       </div>
+
+      ${renderAppleWalletButton(me)}
 
       ${renderLoyaltyCharge(me)}
 
@@ -1230,6 +1249,35 @@
     const goSpots = document.getElementById("go-spots-from-bonus");
     if (goSpots) {
       goSpots.addEventListener("click", () => setTab("spots"));
+    }
+
+    const walletBtn = document.getElementById("add-apple-wallet-btn");
+    const walletHint = document.getElementById("wallet-hint");
+    if (walletBtn) {
+      walletBtn.addEventListener("click", async () => {
+        if (walletBtn.classList.contains("loading")) return;
+        walletBtn.classList.add("loading");
+        walletBtn.disabled = true;
+        if (walletHint) {
+          walletHint.textContent = "";
+          walletHint.classList.add("hidden");
+        }
+        try {
+          const data = await api("/wallet/link");
+          const url = data?.url;
+          if (!url) throw new Error("Не вдалося отримати картку для Wallet");
+          if (tg?.openLink) tg.openLink(url);
+          else window.location.href = url;
+        } catch (err) {
+          if (walletHint) {
+            walletHint.textContent = err.message || "Не вдалося відкрити Apple Wallet";
+            walletHint.classList.remove("hidden");
+          }
+        } finally {
+          walletBtn.classList.remove("loading");
+          walletBtn.disabled = false;
+        }
+      });
     }
 
     content.querySelectorAll("[data-tab-go]").forEach((btn) => {

@@ -211,7 +211,7 @@ def create_pkpass(
     if not is_configured():
         raise AppleWalletError(
             "Apple Wallet не налаштовано: потрібні APPLE_PASS_TYPE_ID, APPLE_TEAM_ID "
-            "та сертифікати в папці certs/"
+            "та сертифікати в папці apple_wallet_certs/"
         )
     if not card_number:
         raise AppleWalletError("Немає номера картки")
