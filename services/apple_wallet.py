@@ -140,6 +140,27 @@ def _ensure_assets() -> dict[str, bytes]:
     return files
 
 
+def _render_barcode_strip(card_number: str, width: int, height: int) -> bytes:
+    from services.barcode_image import render_wallet_strip_barcode_png
+
+    return render_wallet_strip_barcode_png(
+        card_number,
+        width=width,
+        height=height,
+        foreground=BRAND_INK,
+        background=BRAND_CREAM,
+    ).read()
+
+
+def _wallet_strip_images(card_number: str) -> dict[str, bytes]:
+    specs = {
+        "strip.png": (375, 123),
+        "strip@2x.png": (750, 246),
+        "strip@3x.png": (1125, 369),
+    }
+    return {name: _render_barcode_strip(card_number, w, h) for name, (w, h) in specs.items()}
+
+
 def _barcode_alt_text(card_number: str) -> str:
     digits = re.sub(r"\D", "", card_number)
     if len(digits) == 13:
@@ -186,19 +207,19 @@ def build_pass_json(
         "storeCard": {
             "headerFields": [
                 {
+                    "key": "member",
+                    "label": "Власник",
+                    "value": name,
+                    "textAlignment": "PKTextAlignmentLeft",
+                },
+                {
                     "key": "bonus",
                     "label": "Крафтики",
                     "value": f"{bonus:g}",
                     "textAlignment": "PKTextAlignmentRight",
-                }
+                },
             ],
-            "primaryFields": [
-                {
-                    "key": "member",
-                    "label": "Власник",
-                    "value": name,
-                }
-            ],
+            "primaryFields": [],
             "secondaryFields": [],
             "auxiliaryFields": [],
             "backFields": [
@@ -247,6 +268,7 @@ def create_pkpass(
     )
     files = {"pass.json": json.dumps(pass_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
     files.update(_ensure_assets())
+    files.update(_wallet_strip_images(card_number))
 
     manifest = {
         name: hashlib.sha1(content).hexdigest()

@@ -229,7 +229,7 @@ nav#tabs button:active { transform: scale(0.96); }
 
 .panel-hero {
   background: var(--card);
-  padding: 16px 14px 14px;
+  padding: 16px 18px 12px;
 }
 
 .panel-balance {
@@ -302,47 +302,23 @@ nav#tabs button:active { transform: scale(0.96); }
 
 .barcode-wrap {
   background: #fff;
-  border-radius: 18px;
-  padding: 6px 4px 4px;
-  margin: 10px 0 8px;
+  border-radius: 20px;
+  padding: 14px 10px 12px;
+  margin: 0 0 10px;
   box-shadow: inset 0 0 0 1px var(--edge);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  transition: padding 0.25s ease, box-shadow 0.25s ease;
   overflow: hidden;
-  width: 100%;
 }
 
-.barcode-wrap:active:not(.enlarged) {
-  opacity: 0.94;
-  transform: scale(0.995);
-}
+.barcode-wrap:active:not(.enlarged) { opacity: 0.92; }
 
 .barcode-wrap svg#card-barcode {
   display: block;
-  width: 100% !important;
+  width: auto;
   max-width: 100%;
-  height: auto !important;
-  min-height: 120px;
+  height: auto;
   margin: 0 auto;
-}
-
-.card-holder-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 2px;
-  min-width: 0;
-}
-
-.card-holder-row .card-holder-name {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-}
-
-.card-id-block {
-  margin: 4px 0 2px;
-  padding: 0 4px;
 }
 
 #content.scroll-locked {
@@ -428,7 +404,7 @@ body.barcode-modal-open .surface {
 
 .barcode-modal-code {
   width: 100%;
-  padding: 12px 4px 8px;
+  padding: 16px 0;
   background: #fff;
   border-radius: 0;
   box-shadow: none;
@@ -438,8 +414,7 @@ body.barcode-modal-open .surface {
   display: block;
   width: 100% !important;
   height: auto !important;
-  max-height: min(52vh, 380px);
-  min-height: 180px;
+  max-height: min(42vh, 280px);
 }
 
 .barcode-modal-hint {
@@ -476,10 +451,9 @@ body.barcode-modal-open .surface {
   justify-content: center;
   gap: 8px;
   color: var(--sub);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  margin: 8px 0 0;
-  line-height: 1.35;
+  margin: 0 0 8px;
 }
 
 .tap-hint svg {
