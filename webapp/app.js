@@ -517,12 +517,12 @@
     const format = code.length === 13 ? "EAN13" : "CODE128";
     const host = el.parentElement;
     const hostWidth = host?.clientWidth || (large ? 360 : 320);
-    const margin = large ? 12 : 2;
-    const avail = Math.max(220, hostWidth - margin * 2 - (large ? 24 : 12));
-    const height = large ? 210 : 100;
+    const margin = large ? 10 : 1;
+    const avail = Math.max(240, hostWidth - margin * 2 - (large ? 16 : 8));
+    const height = large ? 280 : 132;
     const charLen = String(code).length;
     const modules = format === "EAN13" ? 95 : (charLen + 2) * 11 + 35;
-    const barWidth = Math.min(3.6, Math.max(1.4, avail / modules));
+    const barWidth = Math.min(4.4, Math.max(1.55, avail / modules));
     const opts = {
       format,
       displayValue: false,
