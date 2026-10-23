@@ -132,33 +132,15 @@ def _ensure_assets() -> dict[str, bytes]:
 
     files: dict[str, bytes] = {}
     for name, size in specs.items():
-        img = _fit_on_canvas(src, size, bg=BRAND_CREAM, pad=max(2, min(size) // 10))
+        # Logo: transparent on pass cream; icon: small tile on cream.
+        bg = None if name.startswith("logo") else BRAND_CREAM
+        pad = max(2, min(size) // 12) if not name.startswith("logo") else max(4, min(size) // 16)
+        img = _fit_on_canvas(src, size, bg=bg, pad=pad)
         data = _png_bytes(img)
         files[name] = data
         (ASSETS_DIR / name).write_bytes(data)
 
     return files
-
-
-def _render_barcode_strip(card_number: str, width: int, height: int) -> bytes:
-    from services.barcode_image import render_wallet_strip_barcode_png
-
-    return render_wallet_strip_barcode_png(
-        card_number,
-        width=width,
-        height=height,
-        foreground=BRAND_INK,
-        background=BRAND_CREAM,
-    ).read()
-
-
-def _wallet_strip_images(card_number: str) -> dict[str, bytes]:
-    specs = {
-        "strip.png": (375, 123),
-        "strip@2x.png": (750, 246),
-        "strip@3x.png": (1125, 369),
-    }
-    return {name: _render_barcode_strip(card_number, w, h) for name, (w, h) in specs.items()}
 
 
 def _barcode_alt_text(card_number: str) -> str:
@@ -190,12 +172,6 @@ def build_pass_json(
         "foregroundColor": "rgb(53, 34, 26)",
         "backgroundColor": "rgb(248, 245, 238)",
         "labelColor": "rgb(122, 101, 88)",
-        "barcode": {
-            "format": barcode_format,
-            "message": card_number,
-            "messageEncoding": "iso-8859-1",
-            "altText": _barcode_alt_text(card_number),
-        },
         "barcodes": [
             {
                 "format": barcode_format,
@@ -207,19 +183,19 @@ def build_pass_json(
         "storeCard": {
             "headerFields": [
                 {
-                    "key": "member",
-                    "label": "Власник",
-                    "value": name,
-                    "textAlignment": "PKTextAlignmentLeft",
-                },
-                {
                     "key": "bonus",
                     "label": "Крафтики",
                     "value": f"{bonus:g}",
                     "textAlignment": "PKTextAlignmentRight",
-                },
+                }
             ],
-            "primaryFields": [],
+            "primaryFields": [
+                {
+                    "key": "member",
+                    "label": "Власник",
+                    "value": name,
+                }
+            ],
             "secondaryFields": [],
             "auxiliaryFields": [],
             "backFields": [
@@ -231,7 +207,7 @@ def build_pass_json(
                 {
                     "key": "info",
                     "label": "Про програму",
-                    "value": "1 Крафтик = 1 грн знижки. Покажи штрихкод у Крафт Кава.",
+                    "value": "1 Крафтик = 1 грн знижки. Покажи штрихкод на касі Крафт Кава.",
                 },
                 {
                     "key": "support",
@@ -268,7 +244,6 @@ def create_pkpass(
     )
     files = {"pass.json": json.dumps(pass_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
     files.update(_ensure_assets())
-    files.update(_wallet_strip_images(card_number))
 
     manifest = {
         name: hashlib.sha1(content).hexdigest()
