@@ -3,9 +3,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env")
 DB_PATH = PROJECT_ROOT / "database" / "data.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -72,6 +71,8 @@ GOOGLE_WALLET_ISSUER_ID = (getenv("GOOGLE_WALLET_ISSUER_ID") or "338800000002322
 GOOGLE_WALLET_CLASS_SUFFIX = (getenv("GOOGLE_WALLET_CLASS_SUFFIX") or "craft_coffee_loyalty").strip()
 WALLET_BG_COLOR = (getenv("WALLET_BG_COLOR") or "#35221A").strip()
 WALLET_LOGO_URL = (getenv("WALLET_LOGO_URL") or "").strip()
+if not WALLET_LOGO_URL and WEBAPP_URL and "ngrok" not in WEBAPP_URL.lower():
+    WALLET_LOGO_URL = f"{WEBAPP_URL}/logo.png"
 
 
 def _resolve_google_wallet_key_file() -> str:

@@ -559,6 +559,20 @@ async def on_startup(router):
     else:
         log.warning("WEBAPP_URL is empty — Mini App button and webhook URL disabled")
 
+    from services import apple_wallet, google_wallet
+
+    if apple_wallet.is_configured():
+        log.info("Apple Wallet: ready")
+    else:
+        log.warning("Apple Wallet: not configured (certs / PASS_TYPE_ID)")
+    if google_wallet.is_configured():
+        log.info("Google Wallet: ready (%s)", google_wallet.status().get("class_id"))
+    else:
+        log.warning(
+            "Google Wallet: not configured — copy telebots-e-commerce-*.json to server "
+            "and set GOOGLE_APPLICATION_CREDENTIALS in .env"
+        )
+
 
 async def on_shutdown(router):
     from services.backup_cron import stop_backup_cron

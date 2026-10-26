@@ -86,6 +86,21 @@ Referral grants (після 00:00 Києва) → нарахування зап�
 У BotFather вкажи Web App URL = `WEBAPP_URL`.  
 У Poster: webhook `{WEBAPP_URL}/webhook/poster` (entities: `transaction`, `client_payed_sum`).
 
+### Google Wallet на проді
+
+1. На сервері в `.env` (той самий каталог, що `main.py`):
+   - `WEBAPP_URL=https://craftcoffee.telebots.site`
+   - `GOOGLE_APPLICATION_CREDENTIALS=telebots-e-commerce-32f2168188c5.json`
+   - `GOOGLE_WALLET_ISSUER_ID` / `GOOGLE_WALLET_CLASS_SUFFIX` (як у `.env.example`)
+2. Скопіюй JSON-ключ у корінь проєкту на сервері (файл **не** в git):
+   ```bash
+   DEPLOY_HOST=user@server DEPLOY_DIR=/opt/craft-coffee-bonus-bot ./scripts/deploy_google_wallet_key.sh
+   ```
+3. `pip install -r requirements.txt` (потрібен `google-auth`), `./start_bot.sh restart`.
+4. У логах має бути `Google Wallet: ready`. У мініапі — кнопка під Apple (онови картку в Telegram).
+
+Якщо локально `WEBAPP_URL` — ngrok, логотип для API лишай `WALLET_LOGO_URL=https://craftcoffee.telebots.site/logo.png`.
+
 ### Операційні команди
 
 ```bash
