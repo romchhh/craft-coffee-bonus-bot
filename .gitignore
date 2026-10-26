@@ -30,6 +30,11 @@ certs/*.pem
 # Apple Wallet (Pass Type ID) — локально, не в git
 apple_wallet_certs/*
 !apple_wallet_certs/.gitkeep
+
+# Google Cloud / Wallet service account (ніколи не комітити)
+telebots-e-commerce-*.json
+*-32f2168188c5.json
+google_wallet*.json
 pass.cer
 pass.key
 pass.csr

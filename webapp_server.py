@@ -24,6 +24,7 @@ from config import (
     WELCOME_BONUS_UAH,
     token as BOT_TOKEN,
 )
+from database_functions.settings_db import get_support_username
 from database_functions.client_db import get_user, update_user_birthday
 from utils.kyiv_time import kyiv_now_str
 from services.quest_bonuses import grant_birthday_bonus, maybe_grant_annual_birthday, quests_payload
@@ -44,6 +45,41 @@ log = logging.getLogger(__name__)
 WEBAPP_DIR = Path(__file__).resolve().parent / "webapp"
 AVATAR_CACHE = Path("cache/avatars")
 AVATAR_CACHE.mkdir(parents=True, exist_ok=True)
+BRAND_LOGO_PATH = WEBAPP_DIR / "assets" / "brand-logo.png"
+_LOGO_CACHE_HEADERS = {"Cache-Control": "public, max-age=604800, immutable"}
+
+
+def _webapp_base() -> str:
+    return (WEBAPP_URL or "").rstrip("/")
+
+
+def _public_page_context() -> dict[str, str]:
+    from Content.locations import INSTAGRAM_URL
+
+    base = _webapp_base()
+    username = (BOT_USERNAME or "").strip().lstrip("@")
+    bot_url = f"https://t.me/{username}" if username else "#"
+    support_user = get_support_username()
+    support_url = f"https://t.me/{support_user}"
+    logo_url = f"{base}/logo.png" if base else "/logo.png"
+    rules_url = f"{base}/rules" if base else "/rules"
+    privacy_url = f"{base}/privacy" if base else "/privacy"
+    return {
+        "BOT_URL": bot_url,
+        "INSTAGRAM_URL": INSTAGRAM_URL,
+        "SUPPORT_URL": support_url,
+        "SUPPORT_LABEL": f"@{support_user}",
+        "LOGO_URL": logo_url,
+        "RULES_URL": rules_url,
+        "PRIVACY_URL": privacy_url,
+    }
+
+
+def _render_public_html(filename: str) -> str:
+    template = (WEBAPP_DIR / filename).read_text(encoding="utf-8")
+    for key, value in _public_page_context().items():
+        template = template.replace("{{" + key + "}}", value)
+    return template
 
 
 def _init_data_from_request(request: web.Request) -> str:
@@ -101,21 +137,47 @@ async def rules_page(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(WEBAPP_DIR / "rules.html")
 
 
+async def about_page(_request: web.Request) -> web.Response:
+    return web.Response(
+        text=_render_public_html("about.html"),
+        content_type="text/html",
+        charset="utf-8",
+    )
+
+
+async def support_page(_request: web.Request) -> web.Response:
+    return web.Response(
+        text=_render_public_html("support.html"),
+        content_type="text/html",
+        charset="utf-8",
+    )
+
+
+async def public_logo(_request: web.Request) -> web.FileResponse:
+    if not BRAND_LOGO_PATH.is_file():
+        raise web.HTTPNotFound(text="Logo not found")
+    return web.FileResponse(BRAND_LOGO_PATH, headers=_LOGO_CACHE_HEADERS)
+
+
 async def api_meta(_request: web.Request) -> web.Response:
     """Public mini-app meta (bot link for registration)."""
     username = (BOT_USERNAME or "").strip().lstrip("@")
     bot_url = f"https://t.me/{username}" if username else None
     from Content.locations import INSTAGRAM_URL
 
-    base = (WEBAPP_URL or "").rstrip("/")
+    base = _webapp_base()
+    ctx = _public_page_context()
     return web.json_response(
         {
             "bot_username": username or None,
             "bot_url": bot_url,
             "start_url": f"{bot_url}?start=card" if bot_url else None,
             "instagram_url": INSTAGRAM_URL,
-            "privacy_url": f"{base}/privacy" if base else "/privacy",
-            "rules_url": f"{base}/rules" if base else "/rules",
+            "privacy_url": ctx["PRIVACY_URL"],
+            "rules_url": ctx["RULES_URL"],
+            "company_url": f"{base}/about" if base else "/about",
+            "support_url": f"{base}/support" if base else "/support",
+            "logo_url": ctx["LOGO_URL"],
         }
     )
 
@@ -754,6 +816,9 @@ def create_app() -> web.Application:
     app.router.add_get("/birthday", birthday_page)
     app.router.add_get("/privacy", privacy_page)
     app.router.add_get("/rules", rules_page)
+    app.router.add_get("/about", about_page)
+    app.router.add_get("/support", support_page)
+    app.router.add_get("/logo.png", public_logo)
     app.router.add_get("/api/meta", api_meta)
     app.router.add_get("/api/me", api_me)
     app.router.add_post("/api/me/birthday", api_update_birthday)
