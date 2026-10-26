@@ -1069,8 +1069,10 @@ body.barcode-modal-open .surface {
 
 .wallet-btn:active { transform: scale(0.98); }
 .wallet-btn:disabled,
+.wallet-btn[aria-disabled="true"],
 .wallet-btn.loading {
-  opacity: 0.92;
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .wallet-loading {
