@@ -287,11 +287,13 @@
 
   function shouldShowGoogleWalletButton(me) {
     if (!me?.card_number || !me.google_wallet?.configured) return false;
-    if (isAppleWalletPlatform()) return false;
     if (isGoogleWalletPlatform()) return true;
+    if (isAppleWalletPlatform()) return true;
     const p = String(tg?.platform || "").toLowerCase();
-    if (["tdesktop", "macos", "web", "weba", "unknown"].includes(p)) return true;
-    return false;
+    if (["tdesktop", "macos", "web", "weba", "unknown", "android"].includes(p)) {
+      return true;
+    }
+    return me.google_wallet?.configured;
   }
 
   const catIcon = (cat = "") => {
@@ -775,10 +777,15 @@
 
   function renderGoogleWalletButton(me) {
     if (!shouldShowGoogleWalletButton(me)) return "";
-    const onPhone = isGoogleWalletPlatform();
-    const hintDesktop = !onPhone
-      ? `<p class="wallet-hint muted">На Android відкрий картку в Telegram — тоді додаси в Google Wallet</p>`
-      : "";
+    const onAndroid = isGoogleWalletPlatform();
+    let hintDesktop = "";
+    if (!onAndroid) {
+      if (isAppleWalletPlatform()) {
+        hintDesktop = `<p class="wallet-hint muted">Google Wallet — відкрий цю картку в Telegram на Android</p>`;
+      } else {
+        hintDesktop = `<p class="wallet-hint muted">На Android відкрий картку в Telegram — тоді додаси в Google Wallet</p>`;
+      }
+    }
     return `
       <button type="button" class="wallet-btn wallet-btn-google" id="add-google-wallet-btn">
         <span class="wallet-btn-content">
