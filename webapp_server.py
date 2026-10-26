@@ -738,6 +738,17 @@ async def api_wallet_google_link(request: web.Request) -> web.Response:
         )
     except google_wallet.GoogleWalletError as exc:
         return web.json_response({"error": str(exc)}, status=503)
+    except ModuleNotFoundError as exc:
+        if "google" in str(exc):
+            log.error("google-auth not installed on server")
+            return web.json_response(
+                {
+                    "error": "Google Wallet на сервері не налаштовано: встановіть залежності "
+                    "(pip install -r requirements.txt).",
+                },
+                status=503,
+            )
+        raise
     except Exception as exc:
         log.exception("google wallet link")
         return web.json_response({"error": f"Не вдалося підготувати Google Wallet: {exc}"}, status=500)

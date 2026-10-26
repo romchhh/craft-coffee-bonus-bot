@@ -52,6 +52,12 @@ start_bot() {
   mkdir -p "$LOG_DIR"
   activate_venv
   cd "$ROOT"
+  if [ -f "$ROOT/requirements.txt" ]; then
+    python3 -m pip install -q -r "$ROOT/requirements.txt" || {
+      echo "pip install failed — fix dependencies before start"
+      return 1
+    }
+  fi
   nohup python3 "$MAIN" >> "$LOG_FILE" 2>&1 &
   sleep 1
   if [ -n "$(bot_pids)" ]; then

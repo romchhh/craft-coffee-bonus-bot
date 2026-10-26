@@ -566,7 +566,15 @@ async def on_startup(router):
     else:
         log.warning("Apple Wallet: not configured (certs / PASS_TYPE_ID)")
     if google_wallet.is_configured():
-        log.info("Google Wallet: ready (%s)", google_wallet.status().get("class_id"))
+        try:
+            import google.auth  # noqa: F401
+        except ImportError:
+            log.error(
+                "Google Wallet: missing package — run: pip install -r requirements.txt "
+                "(need google-auth)"
+            )
+        else:
+            log.info("Google Wallet: ready (%s)", google_wallet.status().get("class_id"))
     else:
         log.warning(
             "Google Wallet: not configured — copy telebots-e-commerce-*.json to server "
