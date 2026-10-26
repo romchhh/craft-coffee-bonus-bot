@@ -57,7 +57,10 @@ BG_COLOR = os.environ.get("WALLET_BG_COLOR", "#35221A")
 def _resolve_key_file() -> str | None:
     explicit = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
     if explicit:
-        return explicit
+        path = Path(explicit)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return str(path)
     for path in sorted(PROJECT_ROOT.glob("telebots-e-commerce-*.json")):
         return str(path)
     return None

@@ -77,7 +77,10 @@ WALLET_LOGO_URL = (getenv("WALLET_LOGO_URL") or "").strip()
 def _resolve_google_wallet_key_file() -> str:
     explicit = (getenv("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
     if explicit:
-        return explicit
+        path = Path(explicit)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return str(path)
     for path in sorted(PROJECT_ROOT.glob("telebots-e-commerce-*.json")):
         return str(path)
     return ""
