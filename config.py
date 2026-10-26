@@ -68,6 +68,23 @@ APPLE_PASS_KEY_PASSWORD = getenv("APPLE_PASS_KEY_PASSWORD", "")
 APPLE_WWDR_CERT = getenv("APPLE_WWDR_CERT", "apple_wallet_certs/wwdr.pem")
 APPLE_WALLET_SECRET = getenv("APPLE_WALLET_SECRET") or (token or "craft-wallet-secret")
 
+GOOGLE_WALLET_ISSUER_ID = (getenv("GOOGLE_WALLET_ISSUER_ID") or "3388000000023224873").strip()
+GOOGLE_WALLET_CLASS_SUFFIX = (getenv("GOOGLE_WALLET_CLASS_SUFFIX") or "craft_coffee_loyalty").strip()
+WALLET_BG_COLOR = (getenv("WALLET_BG_COLOR") or "#35221A").strip()
+WALLET_LOGO_URL = (getenv("WALLET_LOGO_URL") or "").strip()
+
+
+def _resolve_google_wallet_key_file() -> str:
+    explicit = (getenv("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    if explicit:
+        return explicit
+    for path in sorted(PROJECT_ROOT.glob("telebots-e-commerce-*.json")):
+        return str(path)
+    return ""
+
+
+GOOGLE_WALLET_KEY_FILE = _resolve_google_wallet_key_file()
+
 # Poster webhooks (application secret from developer cabinet; optional)
 POSTER_APP_SECRET = getenv("POSTER_APP_SECRET", "")
 CASHBACK_PERCENT = float(getenv("CASHBACK_PERCENT", "1"))

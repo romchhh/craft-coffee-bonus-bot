@@ -30,7 +30,7 @@ from utils.kyiv_time import kyiv_now_str
 from services.quest_bonuses import grant_birthday_bonus, maybe_grant_annual_birthday, quests_payload
 from services.quests import birthday_can_edit, birthday_has_value
 from database_functions.settings_db import get_welcome_bonus_uah, list_bonus_accruals_for_user
-from services import apple_wallet, poster
+from services import apple_wallet, google_wallet, poster
 from services import poster_media
 from services.menu_visibility import category_visible, product_visible
 from services.poster_cache import get_cached as poster_get_cached
@@ -395,6 +395,7 @@ async def api_me(request: web.Request) -> web.Response:
             "bonuses_blocked": bool(int(db_user.get("bonuses_blocked") or 0)),
             "photo_url": photo_url,
             "wallet": apple_wallet.status(),
+            "google_wallet": google_wallet.status(),
             "loyalty": loyalty,
             "quests": quests_payload(int(tg_user["id"])),
         }
@@ -703,6 +704,47 @@ async def api_wallet_link(request: web.Request) -> web.Response:
     return web.json_response({"url": url, "expires_in": 300})
 
 
+async def api_wallet_google_link(request: web.Request) -> web.Response:
+    """Return Google Wallet «Save» URL (syncs loyalty object + JWT)."""
+    tg_user = _auth_user(request)
+    db_user = get_user(tg_user["id"])
+    if not db_user or not db_user.get("registered"):
+        return web.json_response({"error": "Не зареєстровано"}, status=404)
+    if not db_user.get("card_number"):
+        return web.json_response({"error": "Немає номера картки"}, status=400)
+    if not google_wallet.is_configured():
+        return web.json_response(
+            {
+                "error": "Google Wallet ще не налаштовано на сервері.",
+                "configured": False,
+            },
+            status=503,
+        )
+
+    bonus = 0.0
+    if db_user.get("poster_client_id"):
+        try:
+            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
+        except Exception:
+            pass
+
+    name = db_user.get("display_name") or db_user.get("user_first_name") or "Гість"
+    try:
+        url = await asyncio.to_thread(
+            google_wallet.create_save_link,
+            db_user["card_number"],
+            name,
+            bonus,
+        )
+    except google_wallet.GoogleWalletError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
+    except Exception as exc:
+        log.exception("google wallet link")
+        return web.json_response({"error": f"Не вдалося підготувати Google Wallet: {exc}"}, status=500)
+
+    return web.json_response({"url": url})
+
+
 async def api_wallet_pkpass(request: web.Request) -> web.Response:
     token = request.rel_url.query.get("t", "")
     user_id = _parse_wallet_token(token)
@@ -828,6 +870,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/poster/media", api_poster_media)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/api/wallet/link", api_wallet_link)
+    app.router.add_get("/api/wallet/google/link", api_wallet_google_link)
     app.router.add_get("/api/wallet/apple.pkpass", api_wallet_pkpass)
     app.router.add_post("/webhook/poster", poster_webhook)
     app.router.add_static("/static/", WEBAPP_DIR, show_index=False)

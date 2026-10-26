@@ -257,7 +257,9 @@
 
   const icon = (name) => `<i data-lucide="${name}"></i>`;
 
-  const appleLogoSvg = () => `<svg class="apple-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>`;
+  const appleLogoSvg = () => `<svg class="wallet-btn-logo apple-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>`;
+
+  const googleWalletLogoSvg = () => `<svg class="wallet-btn-logo google-wallet-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#EA4335" d="M12 11.5v3.25l2.75 1.58c.53-.92.84-1.98.84-3.16 0-.56-.08-1.1-.22-1.61L12 11.5z"/><path fill="#34A853" d="M8.63 14.33 6 12.85c-.4.74-.63 1.58-.63 2.48 0 .9.23 1.74.63 2.48l2.63-1.48c-.14-.51-.22-1.05-.22-1.61 0-.56.08-1.1.22-1.61z"/><path fill="#FBBC04" d="M12 8.25c1.18 0 2.24.31 3.16.84L12.63 6.5C11.82 6.18 10.93 6 12 6c-1.66 0-3.15.72-4.18 1.87l2.63 1.48C10.9 8.33 11.44 8.25 12 8.25z"/><path fill="#4285F4" d="M12 18c1.07 0 2.07-.29 2.94-.79l-2.57-1.48A3.7 3.7 0 0 1 12 16.33c-.56 0-1.1-.08-1.61-.22l-2.63 1.48C9.85 17.28 10.93 18 12 18z"/><path fill="#fff" fill-opacity=".95" d="M6 10.5V8.25C4.35 9.58 3.25 11.68 3.25 14.33c0 2.65 1.1 4.75 2.75 6.08V17.83C5.6 16.75 5 15.12 5 13.33c0-1.05.25-2.03.7-2.9L6 10.5zm12-2.25V6.17C16.4 4.75 14.35 4 12 4 9.65 4 7.6 4.75 6 6.17v2.08c1.15-.95 2.64-1.5 4.25-1.5 1.5 0 2.87.48 4 1.27z"/></svg>`;
 
   function isAppleWalletPlatform() {
     const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
@@ -273,6 +275,22 @@
     if (["tdesktop", "macos", "web", "weba", "unknown"].includes(p) && me.wallet?.configured) {
       return true;
     }
+    return false;
+  }
+
+  function isGoogleWalletPlatform() {
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    if (/Android/i.test(ua)) return true;
+    const p = String(tg?.platform || "").toLowerCase();
+    return p === "android";
+  }
+
+  function shouldShowGoogleWalletButton(me) {
+    if (!me?.card_number || !me.google_wallet?.configured) return false;
+    if (isAppleWalletPlatform()) return false;
+    if (isGoogleWalletPlatform()) return true;
+    const p = String(tg?.platform || "").toLowerCase();
+    if (["tdesktop", "macos", "web", "weba", "unknown"].includes(p)) return true;
     return false;
   }
 
@@ -710,7 +728,7 @@
     return renderReferralBlock(me, { asPanel: true });
   }
 
-  function setWalletLoading(on) {
+  function setWalletLoading(on, label = "Apple Wallet") {
     let el = document.getElementById("wallet-loading");
     if (!el) {
       el = document.createElement("div");
@@ -721,9 +739,13 @@
         <div class="wallet-loading-sheet" role="status" aria-live="polite" aria-busy="true">
           <img class="wallet-loading-logo" src="/static/assets/brand-logo.png" alt="Крафт Кава" width="148" height="48" decoding="async">
           <div class="wallet-loading-spinner" aria-hidden="true"></div>
-          <p class="wallet-loading-text">Готуємо картку для Apple Wallet…</p>
+          <p class="wallet-loading-text" id="wallet-loading-text">Готуємо картку…</p>
         </div>`;
       (document.querySelector(".surface") || document.body).appendChild(el);
+    }
+    const textEl = el.querySelector("#wallet-loading-text");
+    if (textEl) {
+      textEl.textContent = on ? `Готуємо картку для ${label}…` : "Готуємо картку…";
     }
     el.hidden = !on;
     el.setAttribute("aria-hidden", on ? "false" : "true");
@@ -747,8 +769,36 @@
           <span>Завантаження…</span>
         </span>
       </button>
-      <p class="wallet-hint muted hidden" id="wallet-hint" role="status"></p>
+      <p class="wallet-hint muted hidden" id="wallet-hint-apple" role="status"></p>
       ${hintDesktop}`;
+  }
+
+  function renderGoogleWalletButton(me) {
+    if (!shouldShowGoogleWalletButton(me)) return "";
+    const onPhone = isGoogleWalletPlatform();
+    const hintDesktop = !onPhone
+      ? `<p class="wallet-hint muted">На Android відкрий картку в Telegram — тоді додаси в Google Wallet</p>`
+      : "";
+    return `
+      <button type="button" class="wallet-btn wallet-btn-google" id="add-google-wallet-btn">
+        <span class="wallet-btn-content">
+          ${googleWalletLogoSvg()}
+          <span class="wallet-btn-label">Додати в Google Wallet</span>
+        </span>
+        <span class="wallet-btn-loading hidden" aria-hidden="true">
+          <span class="wallet-btn-spinner"></span>
+          <span>Завантаження…</span>
+        </span>
+      </button>
+      <p class="wallet-hint muted hidden" id="wallet-hint-google" role="status"></p>
+      ${hintDesktop}`;
+  }
+
+  function renderWalletButtons(me) {
+    const apple = renderAppleWalletButton(me);
+    const google = renderGoogleWalletButton(me);
+    if (!apple && !google) return "";
+    return `<div class="wallet-buttons">${apple}${google}</div>`;
   }
 
   function renderCard() {
@@ -788,7 +838,7 @@
           : "1 Крафтик = 1 грн знижки"}</div>
       </div>
 
-      ${renderAppleWalletButton(me)}
+      ${renderWalletButtons(me)}
 
       ${renderLoyaltyCharge(me)}
 
@@ -1296,36 +1346,51 @@
       goSpots.addEventListener("click", () => setTab("spots"));
     }
 
-    const walletBtn = document.getElementById("add-apple-wallet-btn");
-    const walletHint = document.getElementById("wallet-hint");
-    if (walletBtn) {
+    const bindWalletBtn = (btnId, hintId, apiPath, loadingLabel, errFallback) => {
+      const walletBtn = document.getElementById(btnId);
+      const walletHint = document.getElementById(hintId);
+      if (!walletBtn) return;
       walletBtn.addEventListener("click", async () => {
         if (walletBtn.classList.contains("loading")) return;
         walletBtn.classList.add("loading");
         walletBtn.disabled = true;
-        setWalletLoading(true);
+        setWalletLoading(true, loadingLabel);
         if (walletHint) {
           walletHint.textContent = "";
           walletHint.classList.add("hidden");
         }
         try {
-          const data = await api("/wallet/link");
+          const data = await api(apiPath);
           const url = data?.url;
           if (!url) throw new Error("Не вдалося отримати картку для Wallet");
           if (tg?.openLink) tg.openLink(url);
           else window.location.href = url;
         } catch (err) {
           if (walletHint) {
-            walletHint.textContent = err.message || "Не вдалося відкрити Apple Wallet";
+            walletHint.textContent = err.message || errFallback;
             walletHint.classList.remove("hidden");
           }
         } finally {
           walletBtn.classList.remove("loading");
           walletBtn.disabled = false;
-          setWalletLoading(false);
+          setWalletLoading(false, loadingLabel);
         }
       });
-    }
+    };
+    bindWalletBtn(
+      "add-apple-wallet-btn",
+      "wallet-hint-apple",
+      "/wallet/link",
+      "Apple Wallet",
+      "Не вдалося відкрити Apple Wallet"
+    );
+    bindWalletBtn(
+      "add-google-wallet-btn",
+      "wallet-hint-google",
+      "/wallet/google/link",
+      "Google Wallet",
+      "Не вдалося відкрити Google Wallet"
+    );
 
     content.querySelectorAll("[data-tab-go]").forEach((btn) => {
       btn.addEventListener("click", () => setTab(btn.getAttribute("data-tab-go")));
