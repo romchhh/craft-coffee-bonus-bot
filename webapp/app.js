@@ -756,10 +756,6 @@
 
   function renderAppleWalletButton(me) {
     if (!shouldShowAppleWalletButton(me)) return "";
-    const hint =
-      !isAppleWalletPlatform() && me.wallet?.configured
-        ? `<p class="wallet-hint muted">Apple Wallet — на iPhone в додатку Telegram</p>`
-        : "";
     return `
       <button type="button" class="wallet-btn" id="add-apple-wallet-btn">
         <span class="wallet-btn-content">
@@ -771,16 +767,11 @@
           <span>Завантаження…</span>
         </span>
       </button>
-      <p class="wallet-hint muted hidden" id="wallet-hint-apple" role="status"></p>
-      ${hint}`;
+      <p class="wallet-hint muted hidden" id="wallet-hint-apple" role="status"></p>`;
   }
 
   function renderGoogleWalletButton(me) {
     if (!shouldShowGoogleWalletButton(me)) return "";
-    const hint =
-      !isGoogleWalletPlatform() && me.google_wallet?.configured
-        ? `<p class="wallet-hint muted">Google Wallet — на Android в додатку Telegram</p>`
-        : "";
     return `
       <button type="button" class="wallet-btn wallet-btn-google" id="add-google-wallet-btn">
         <span class="wallet-btn-content">
@@ -792,8 +783,7 @@
           <span>Завантаження…</span>
         </span>
       </button>
-      <p class="wallet-hint muted hidden" id="wallet-hint-google" role="status"></p>
-      ${hint}`;
+      <p class="wallet-hint muted hidden" id="wallet-hint-google" role="status"></p>`;
   }
 
   function renderWalletButtons(me) {
