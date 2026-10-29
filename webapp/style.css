@@ -1034,16 +1034,27 @@ body.barcode-modal-open .surface {
 }
 
 .wallet-btn-logo,
-.wallet-btn .apple-logo {
-  width: 22px;
-  height: 22px;
+.wallet-brand-icon {
   display: block;
   flex-shrink: 0;
+  object-fit: contain;
 }
 
-.wallet-btn-google .google-wallet-logo {
-  width: 24px;
-  height: 24px;
+.wallet-brand-apple {
+  height: 22px;
+  width: auto;
+  max-width: 92px;
+  filter: brightness(0) invert(1);
+}
+
+.wallet-brand-google {
+  height: 26px;
+  width: auto;
+  max-width: 30px;
+}
+
+.wallet-btn-google .wallet-btn-content {
+  gap: 12px;
 }
 
 .wallet-btn-spinner,

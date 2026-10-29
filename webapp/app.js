@@ -257,9 +257,17 @@
 
   const icon = (name) => `<i data-lucide="${name}"></i>`;
 
-  const appleLogoSvg = () => `<svg class="wallet-btn-logo apple-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>`;
+  /** Wikimedia Commons → developers.google.com/wallet (Google Wallet app icon, 2022+) */
+  const WALLET_GOOGLE_ICON = "/static/assets/wallet-google.svg";
+  /** Wikimedia Commons → Apple Pay wordmark (Adobe Illustrator export) */
+  const WALLET_APPLE_PAY_ICON = "/static/assets/wallet-apple-pay.svg";
 
-  const googleWalletLogoSvg = () => `<svg class="wallet-btn-logo google-wallet-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#EA4335" d="M12 11.5v3.25l2.75 1.58c.53-.92.84-1.98.84-3.16 0-.56-.08-1.1-.22-1.61L12 11.5z"/><path fill="#34A853" d="M8.63 14.33 6 12.85c-.4.74-.63 1.58-.63 2.48 0 .9.23 1.74.63 2.48l2.63-1.48c-.14-.51-.22-1.05-.22-1.61 0-.56.08-1.1.22-1.61z"/><path fill="#FBBC04" d="M12 8.25c1.18 0 2.24.31 3.16.84L12.63 6.5C11.82 6.18 10.93 6 12 6c-1.66 0-3.15.72-4.18 1.87l2.63 1.48C10.9 8.33 11.44 8.25 12 8.25z"/><path fill="#4285F4" d="M12 18c1.07 0 2.07-.29 2.94-.79l-2.57-1.48A3.7 3.7 0 0 1 12 16.33c-.56 0-1.1-.08-1.61-.22l-2.63 1.48C9.85 17.28 10.93 18 12 18z"/><path fill="#fff" fill-opacity=".95" d="M6 10.5V8.25C4.35 9.58 3.25 11.68 3.25 14.33c0 2.65 1.1 4.75 2.75 6.08V17.83C5.6 16.75 5 15.12 5 13.33c0-1.05.25-2.03.7-2.9L6 10.5zm12-2.25V6.17C16.4 4.75 14.35 4 12 4 9.65 4 7.6 4.75 6 6.17v2.08c1.15-.95 2.64-1.5 4.25-1.5 1.5 0 2.87.48 4 1.27z"/></svg>`;
+  const walletBrandIcon = (kind) => {
+    if (kind === "google") {
+      return `<img class="wallet-brand-icon wallet-brand-google" src="${WALLET_GOOGLE_ICON}" alt="" width="24" height="24" decoding="async" aria-hidden="true">`;
+    }
+    return `<img class="wallet-brand-icon wallet-brand-apple" src="${WALLET_APPLE_PAY_ICON}" alt="" width="88" height="22" decoding="async" aria-hidden="true">`;
+  };
 
   function isAppleWalletPlatform() {
     const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
@@ -755,7 +763,7 @@
     return `
       <button type="button" class="wallet-btn" id="add-apple-wallet-btn">
         <span class="wallet-btn-content">
-          ${appleLogoSvg()}
+          ${walletBrandIcon("apple")}
           <span class="wallet-btn-label">Додати в Apple Wallet</span>
         </span>
         <span class="wallet-btn-loading hidden" aria-hidden="true">
@@ -776,7 +784,7 @@
     return `
       <button type="button" class="wallet-btn wallet-btn-google" id="add-google-wallet-btn">
         <span class="wallet-btn-content">
-          ${googleWalletLogoSvg()}
+          ${walletBrandIcon("google")}
           <span class="wallet-btn-label">Додати в Google Wallet</span>
         </span>
         <span class="wallet-btn-loading hidden" aria-hidden="true">
@@ -792,7 +800,9 @@
     const apple = renderAppleWalletButton(me);
     const google = renderGoogleWalletButton(me);
     if (!apple && !google) return "";
-    return `<div class="wallet-buttons">${apple}${google}</div>`;
+    const androidFirst = isGoogleWalletPlatform() && !isAppleWalletPlatform();
+    const inner = androidFirst ? `${google}${apple}` : `${apple}${google}`;
+    return `<div class="wallet-buttons">${inner}</div>`;
   }
 
   function renderCard() {
