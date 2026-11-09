@@ -1399,6 +1399,37 @@ body.wallet-loading-open {
   min-width: 0;
 }
 
+.hist-items {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hist-items li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.hist-item-name {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.hist-item-sum {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
+}
+
 .hist-card-bonuses {
   margin-top: 14px;
   padding-top: 12px;

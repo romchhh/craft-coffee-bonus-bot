@@ -51,7 +51,12 @@ def call(method: str, data: dict | None = None, params: dict | None = None) -> A
     else:
         resp = requests.post(url, params=query, data=data, timeout=TIMEOUT)
     resp.raise_for_status()
-    body = resp.json()
+    if not (resp.text or "").strip():
+        raise PosterError(f"порожня відповідь {method}")
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise PosterError(f"не JSON від {method}: {exc}") from exc
     if "error" in body:
         raise PosterError(body)
     return body.get("response")
@@ -392,15 +397,54 @@ def _fetch_transactions_range(
     date_from: str,
     date_to: str,
     spot_id: int | None = None,
+    include_products: bool = False,
 ) -> list[dict]:
     params: dict[str, Any] = {
         "dateFrom": date_from,
         "dateTo": date_to,
-        "include_products": "false",
+        "include_products": "true" if include_products else "false",
     }
     if spot_id is not None:
         params["spot_id"] = int(spot_id)
     return call("dash.getTransactions", params=params) or []
+
+
+def tx_product_lines(tx: dict | None) -> list[dict[str, Any]]:
+    """Normalize Poster receipt products → [{name, count, sum_uah}]."""
+    if not tx:
+        return []
+    products_map = {str(p.get("product_id")): p for p in (get_products() or [])}
+    lines: list[dict[str, Any]] = []
+    for row in tx.get("products") or []:
+        pid = str(row.get("product_id") or row.get("id") or "")
+        catalog = products_map.get(pid) or {}
+        name = (
+            (row.get("product_name") or row.get("name") or catalog.get("product_name") or "")
+            .strip()
+            or (f"Товар #{pid}" if pid else "Товар")
+        )
+        try:
+            count = float(row.get("num") or row.get("count") or row.get("amount") or 1)
+        except (TypeError, ValueError):
+            count = 1.0
+        # dash.getTransaction products use product_price / payed_sum (minor units)
+        raw_sum = (
+            row.get("payed_sum")
+            or row.get("product_sum")
+            or row.get("product_price")
+            or row.get("sum")
+            or 0
+        )
+        sum_uah = from_minor(raw_sum)
+        lines.append(
+            {
+                "product_id": pid or None,
+                "name": name,
+                "count": count if count > 0 else 1.0,
+                "sum_uah": round(sum_uah, 2),
+            }
+        )
+    return lines
 
 
 def get_closed_transactions(days: int = 2, spot_id: int | None = None) -> list[dict]:
@@ -463,10 +507,81 @@ def transaction_spot_id(tx: dict | None) -> int | None:
     return sid if sid > 0 else None
 
 
-def get_transactions_for_client(client_id: int | str, days: int = 90) -> list[dict]:
-    """Closed receipts for a client over the last `days` days (any spot)."""
+def get_transactions_for_client(
+    client_id: int | str,
+    days: int = 90,
+    *,
+    include_products: bool = False,
+) -> list[dict]:
+    """Closed receipts for a client over the last `days` days (any spot).
+
+    Fetches in short date chunks without products (90d + products breaks Poster).
+    Enrich with get_transaction() / tx_product_lines() when product lines are needed.
+    """
+    from datetime import datetime, timedelta
+
     cid = str(client_id)
-    return [t for t in get_closed_transactions(days=days) if str(t.get("client_id") or "") == cid]
+    days = max(1, int(days))
+    now = datetime.now()
+    by_id: dict[str, dict] = {}
+    chunk = 7
+
+    def _match(items: list[dict]) -> list[dict]:
+        return [
+            t
+            for t in items
+            if is_transaction_closed(t) and str(t.get("client_id") or "") == cid
+        ]
+
+    for start in range(0, days, chunk):
+        end = min(start + chunk, days)
+        date_to = now - timedelta(days=start)
+        date_from = now - timedelta(days=end)
+        df = date_from.strftime("%Y%m%d")
+        dt = date_to.strftime("%Y%m%d")
+        try:
+            rows = _fetch_transactions_range(
+                date_from=df, date_to=dt, include_products=False
+            )
+        except Exception:
+            log.warning(
+                "get_transactions_for_client client=%s chunk %s..%s failed",
+                cid,
+                df,
+                dt,
+            )
+            # Per-spot fallback for this chunk only
+            for sid in get_spot_ids() or []:
+                try:
+                    rows = _fetch_transactions_range(
+                        date_from=df,
+                        date_to=dt,
+                        spot_id=sid,
+                        include_products=False,
+                    )
+                except Exception:
+                    continue
+                for t in _match(rows):
+                    tid = transaction_id_from_row(t)
+                    if tid:
+                        by_id[tid] = t
+            continue
+        for t in _match(rows):
+            tid = transaction_id_from_row(t)
+            if tid:
+                by_id[tid] = t
+
+    if include_products and by_id:
+        for tid, t in list(by_id.items())[:25]:
+            if t.get("products"):
+                continue
+            try:
+                full = get_transaction(tid)
+            except Exception:
+                continue
+            if full:
+                by_id[tid] = {**t, **full}
+    return list(by_id.values())
 
 
 def product_by_id(product_id: int | str) -> dict | None:

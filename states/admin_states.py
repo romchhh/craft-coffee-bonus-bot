@@ -51,3 +51,4 @@ class SpotsAdmin(StatesGroup):
 class ClientAdmin(StatesGroup):
     search = State()
     gift_amount = State()
+    filter_product = State()

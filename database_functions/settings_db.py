@@ -99,7 +99,16 @@ def _migrate_processed_transactions() -> None:
         cursor.execute(
             "ALTER TABLE processed_transactions ADD COLUMN bonus_spent_uah REAL DEFAULT 0"
         )
-        conn.commit()
+    extras = {
+        "products_json": "TEXT",
+        "spot_id": "INTEGER",
+        "spot_name": "TEXT",
+        "date_close": "TEXT",
+    }
+    for col, decl in extras.items():
+        if col not in cols:
+            cursor.execute(f"ALTER TABLE processed_transactions ADD COLUMN {col} {decl}")
+    conn.commit()
 
 
 def get_setting(key: str, default: str | None = None) -> str:
@@ -271,6 +280,10 @@ def mark_transaction_processed(
     payed_sum_uah: float,
     bonus_uah: float,
     bonus_spent_uah: float = 0,
+    products_json: str | None = None,
+    spot_id: int | None = None,
+    spot_name: str | None = None,
+    date_close: str | None = None,
 ) -> None:
     from utils.kyiv_time import kyiv_now_str
 
@@ -278,8 +291,9 @@ def mark_transaction_processed(
         """
         INSERT OR IGNORE INTO processed_transactions (
             transaction_id, poster_client_id, telegram_user_id,
-            payed_sum_uah, bonus_uah, bonus_spent_uah, processed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            payed_sum_uah, bonus_uah, bonus_spent_uah, processed_at,
+            products_json, spot_id, spot_name, date_close
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             str(transaction_id),
@@ -289,6 +303,10 @@ def mark_transaction_processed(
             bonus_uah,
             float(bonus_spent_uah or 0),
             kyiv_now_str(),
+            products_json,
+            spot_id,
+            spot_name,
+            date_close,
         ),
     )
     conn.commit()
@@ -315,7 +333,8 @@ def mark_transaction_ignored(
 def list_bonus_accruals_for_user(telegram_user_id: int, limit: int = 40) -> list[dict]:
     rows = cursor.execute(
         """
-        SELECT transaction_id, payed_sum_uah, bonus_uah, processed_at
+        SELECT transaction_id, payed_sum_uah, bonus_uah, bonus_spent_uah, processed_at,
+               products_json, spot_id, spot_name, date_close
         FROM processed_transactions
         WHERE telegram_user_id = ? AND bonus_uah > 0
         ORDER BY processed_at DESC
@@ -324,3 +343,52 @@ def list_bonus_accruals_for_user(telegram_user_id: int, limit: int = 40) -> list
         (int(telegram_user_id), limit),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_purchases_for_user(telegram_user_id: int, limit: int = 40) -> list[dict]:
+    """All closed receipts linked to this Telegram user (local loyalty log)."""
+    rows = cursor.execute(
+        """
+        SELECT transaction_id, poster_client_id, payed_sum_uah, bonus_uah, bonus_spent_uah,
+               processed_at, products_json, spot_id, spot_name, date_close
+        FROM processed_transactions
+        WHERE telegram_user_id = ?
+        ORDER BY COALESCE(date_close, processed_at) DESC
+        LIMIT ?
+        """,
+        (int(telegram_user_id), limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_purchase_details(
+    transaction_id: str | int,
+    *,
+    products_json: str | None = None,
+    spot_id: int | None = None,
+    spot_name: str | None = None,
+    date_close: str | None = None,
+) -> None:
+    """Backfill products/spot/date on an already processed receipt."""
+    sets: list[str] = []
+    vals: list = []
+    if products_json is not None:
+        sets.append("products_json = ?")
+        vals.append(products_json)
+    if spot_id is not None:
+        sets.append("spot_id = ?")
+        vals.append(spot_id)
+    if spot_name is not None:
+        sets.append("spot_name = ?")
+        vals.append(spot_name)
+    if date_close is not None:
+        sets.append("date_close = ?")
+        vals.append(date_close)
+    if not sets:
+        return
+    vals.append(str(transaction_id))
+    cursor.execute(
+        f"UPDATE processed_transactions SET {', '.join(sets)} WHERE transaction_id = ?",
+        vals,
+    )
+    conn.commit()

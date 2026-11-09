@@ -276,13 +276,22 @@ def _referral_review_text(items: list) -> str:
 
 @router.message(IsAdmin(), F.text == "👥 Реферали")
 async def referral_review_menu(message: types.Message):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
     from database_functions.referrals_db import list_owner_review
 
     items = list_owner_review()
+    kb = get_referral_review_keyboard(items)
+    # prepend browse-all referrals
+    rows = [
+        [InlineKeyboardButton(text="📋 Хто кого привів", callback_data="clients_refs:0")],
+        *kb.inline_keyboard,
+    ]
     await message.answer(
-        _referral_review_text(items),
+        _referral_review_text(items)
+        + "\n\nПовний список запрошень — «Хто кого привів».",
         parse_mode="HTML",
-        reply_markup=get_referral_review_keyboard(items),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 

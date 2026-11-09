@@ -1217,16 +1217,41 @@
   }
 
   function renderHistory() {
-    const hist = state.history || { purchases: [], bonuses: [] };
     let html = `<div class="section-title"><div class="title-ico">${icon("history")}</div><h2>Історія</h2></div>
       <p class="muted" style="margin-top:-6px">Покупки та нарахування в одному списку</p>`;
 
+    if (!state.history) {
+      html += `<div class="empty">
+        <div class="empty-ico">${icon("loader-circle")}</div>
+        <p><strong>${historyLoading ? "Завантажуємо історію…" : "Оновіть вкладку"}</strong></p>
+        <p class="muted">Чеки з карткою лояльності з’являться тут</p>
+      </div>`;
+      return html;
+    }
+
+    const hist = state.history;
     const blocks = [];
     for (const row of buildHistoryTimeline(hist)) {
       if (row.kind === "purchase") {
         const p = row.purchase;
         const cashback = Number(p.cashback_uah || 0);
         const spent = Number(p.bonus_spent || 0);
+        const items = Array.isArray(p.items) ? p.items : [];
+        const itemsHtml = items.length
+          ? `<ul class="hist-items">${items
+              .map((it) => {
+                const qty = Number(it.count || 1);
+                const qtyLabel = qty > 1 ? `${qty % 1 ? qty : qty}× ` : "";
+                const sum =
+                  it.sum_uah != null && Number(it.sum_uah) > 0
+                    ? `<span class="hist-item-sum">${fmtMoney(it.sum_uah)}</span>`
+                    : "";
+                return `<li><span class="hist-item-name">${escapeHtml(qtyLabel)}${escapeHtml(
+                  it.name || "Товар"
+                )}</span>${sum}</li>`;
+              })
+              .join("")}</ul>`
+          : "";
         let bonusRows = "";
         if (cashback > 0) bonusRows += renderHistBonusRow("Кешбек з покупки", cashback);
         if (spent > 0) bonusRows += renderHistBonusRow("Списано на покупку", -spent);
@@ -1239,6 +1264,7 @@
             <div class="hist-card-body">
               <div class="muted">${escapeHtml(fmtDateTime(p.date))} · ${escapeHtml(p.spot || "Крафт Кава")}</div>
               <h3>Покупка · ${fmtMoney(p.sum)}</h3>
+              ${itemsHtml}
               <div class="muted" style="margin-top:4px">Сплачено ${fmtMoney(p.payed)}</div>
               ${bonusBlock}
             </div>
@@ -1507,6 +1533,7 @@
   async function loadHistory(force = false) {
     if (historyLoading && !force) return;
     historyLoading = true;
+    if (appReady && state.tab === "history") render();
     try {
       const history = await api("/history");
       state.history = history || { purchases: [], bonuses: [] };

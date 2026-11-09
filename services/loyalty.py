@@ -1,6 +1,7 @@
 """Process closed Poster receipts: cashback credit + Telegram notify."""
 from __future__ import annotations
 
+import json
 import logging
 import math
 from typing import Any
@@ -18,6 +19,28 @@ from services.charge_loyalty import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _products_payload(tx: dict) -> str | None:
+    lines = poster.tx_product_lines(tx)
+    if not lines:
+        return None
+    try:
+        return json.dumps(lines, ensure_ascii=False)
+    except Exception:
+        return None
+
+
+def _spot_name(spot_id: int | None) -> str | None:
+    if not spot_id:
+        return None
+    try:
+        for s in poster.get_spots() or []:
+            if int(s.get("spot_id") or 0) == int(spot_id):
+                return (s.get("spot_name") or "").strip() or None
+    except Exception:
+        pass
+    return None
 
 
 def _round_bonus(amount: float) -> float:
@@ -91,7 +114,7 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     if closed_raw:
         closed_at = parse_purchase_datetime(str(closed_raw))
 
-    # Mark early to avoid double credit on webhook retry
+    # Mark early to avoid double credit on webhook retry (also seeds mini-app history)
     mark_transaction_processed(
         tid,
         poster_client_id=client_id,
@@ -99,6 +122,10 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         payed_sum_uah=payed_sum_uah,
         bonus_uah=bonus_uah,
         bonus_spent_uah=bonus_spent_uah,
+        products_json=_products_payload(tx),
+        spot_id=spot_id,
+        spot_name=_spot_name(spot_id),
+        date_close=str(closed_raw)[:19] if closed_raw else None,
     )
 
     try:
