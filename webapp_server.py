@@ -623,137 +623,8 @@ def _enrich_tx_items(tx: dict) -> list[dict]:
         return []
 
 
-async def api_history(request: web.Request) -> web.Response:
-    tg_user = _auth_user(request)
-    db_user = get_user(tg_user["id"])
-    if not db_user:
-        return web.json_response({"purchases": [], "bonuses": []})
-
-    tg_id = int(tg_user["id"])
-    client_id = db_user.get("poster_client_id")
-    accruals_by_tx: dict[str, dict] = {}
-    for acc in list_bonus_accruals_for_user(tg_id, limit=80):
-        tid = str(acc.get("transaction_id") or "")
-        if tid:
-            accruals_by_tx[tid] = acc
-
-    by_tid: dict[str, dict] = {}
-
-    # 1) Local loyalty log first — always show even if Poster is slow/down
-    for row in list_purchases_for_user(tg_id, limit=40):
-        tid = str(row.get("transaction_id") or "")
-        if not tid:
-            continue
-        items = _parse_products_json(row.get("products_json"))
-        by_tid[tid] = {
-            "transaction_id": tid,
-            "date": (row.get("date_close") or row.get("processed_at") or "—")[:19],
-            "spot": (row.get("spot_name") or "").strip() or "Крафт Кава",
-            "sum": float(row.get("payed_sum_uah") or 0),
-            "payed": float(row.get("payed_sum_uah") or 0),
-            "bonus_spent": float(row.get("bonus_spent_uah") or 0),
-            "cashback_uah": float(row.get("bonus_uah") or 0),
-            "items": items,
-        }
-
-    # 2) Poster live receipts (no products in list; enrich below)
-    if client_id:
-        def _load_poster():
-            spots = {
-                int(s["spot_id"]): s.get("spot_name") or ""
-                for s in (poster.get_spots() or [])
-                if s.get("spot_id") is not None
-            }
-            # 45 days in 7-day chunks is enough for mini-app and avoids empty Poster bodies
-            txs = poster.get_transactions_for_client(
-                client_id, days=45, include_products=False
-            )
-            return spots, txs
-
-        try:
-            spots, txs = await asyncio.wait_for(asyncio.to_thread(_load_poster), timeout=18)
-            for t in sorted(txs, key=lambda x: x.get("date_close_date") or "", reverse=True)[:40]:
-                tid = str(t.get("transaction_id") or poster.transaction_id_from_row(t) or "")
-                if not tid:
-                    continue
-                acc = accruals_by_tx.get(tid)
-                try:
-                    spot = spots.get(int(t.get("spot_id") or 0), "") or "Крафт Кава"
-                except (TypeError, ValueError):
-                    spot = "Крафт Кава"
-                existing = by_tid.get(tid)
-                by_tid[tid] = {
-                    "transaction_id": tid,
-                    "date": t.get("date_close_date") or (existing or {}).get("date") or "—",
-                    "spot": spot if spot != "Крафт Кава" else ((existing or {}).get("spot") or spot),
-                    "sum": poster.from_minor(t.get("sum") or t.get("payed_sum")),
-                    "payed": poster.from_minor(t.get("payed_sum")),
-                    "bonus_spent": poster.from_minor(t.get("payed_bonus") or 0),
-                    "cashback_uah": float(acc.get("bonus_uah") or 0)
-                    if acc
-                    else float((existing or {}).get("cashback_uah") or 0),
-                    "items": list((existing or {}).get("items") or []),
-                }
-        except asyncio.TimeoutError:
-            log.warning("history purchases timeout user=%s (showing local)", tg_id)
-        except Exception as exc:
-            log.warning("history purchases: %s", exc)
-
-    # 3) Product lines via getTransaction for receipts missing items
-    missing = [p for p in by_tid.values() if not p.get("items")][:10]
-    if missing:
-
-        def _backfill(rows: list[dict]) -> None:
-            spots = {
-                int(s["spot_id"]): s.get("spot_name") or ""
-                for s in (poster.get_spots() or [])
-                if s.get("spot_id") is not None
-            }
-            for p in rows:
-                tid = p.get("transaction_id")
-                if not tid:
-                    continue
-                try:
-                    full = poster.get_transaction(tid)
-                except Exception:
-                    continue
-                if not full:
-                    continue
-                items = poster.tx_product_lines(full)
-                if items:
-                    p["items"] = items
-                if (not p.get("spot") or p.get("spot") == "Крафт Кава") and full.get("spot_id"):
-                    try:
-                        sid = int(full.get("spot_id") or 0)
-                        p["spot"] = spots.get(sid) or p.get("spot") or "Крафт Кава"
-                    except (TypeError, ValueError):
-                        pass
-                close = full.get("date_close_date") or full.get("date_close")
-                if close and (not p.get("date") or p.get("date") == "—"):
-                    p["date"] = str(close)[:19]
-                try:
-                    update_purchase_details(
-                        tid,
-                        products_json=json.dumps(items, ensure_ascii=False) if items else None,
-                        spot_id=int(full.get("spot_id") or 0) or None,
-                        spot_name=p.get("spot") if p.get("spot") != "Крафт Кава" else None,
-                        date_close=str(close)[:19] if close else None,
-                    )
-                except Exception:
-                    pass
-
-        try:
-            await asyncio.wait_for(asyncio.to_thread(_backfill, missing), timeout=15)
-        except Exception as exc:
-            log.debug("history products backfill: %s", exc)
-
-    purchases = sorted(
-        by_tid.values(),
-        key=lambda p: str(p.get("date") or ""),
-        reverse=True,
-    )[:40]
-
-    bonuses = []
+def _history_bonuses(db_user: dict) -> list[dict]:
+    bonuses: list[dict] = []
     if db_user.get("welcome_bonus_given"):
         bonuses.append(
             {
@@ -772,8 +643,188 @@ async def api_history(request: web.Request) -> web.Response:
                 "amount": get_birthday_bonus_uah(),
             }
         )
+    return bonuses
 
-    return web.json_response({"purchases": purchases, "bonuses": bonuses})
+
+def _history_from_local(tg_id: int) -> dict[str, dict]:
+    by_tid: dict[str, dict] = {}
+    for row in list_purchases_for_user(tg_id, limit=40):
+        tid = str(row.get("transaction_id") or "")
+        if not tid:
+            continue
+        items = _parse_products_json(row.get("products_json"))
+        by_tid[tid] = {
+            "transaction_id": tid,
+            "date": (row.get("date_close") or row.get("processed_at") or "—")[:19],
+            "spot": (row.get("spot_name") or "").strip() or "Крафт Кава",
+            "sum": float(row.get("payed_sum_uah") or 0),
+            "payed": float(row.get("payed_sum_uah") or 0),
+            "bonus_spent": float(row.get("bonus_spent_uah") or 0),
+            "cashback_uah": float(row.get("bonus_uah") or 0),
+            "items": items,
+        }
+    return by_tid
+
+
+def _merge_poster_into_history(
+    by_tid: dict[str, dict],
+    *,
+    client_id: int | str,
+    accruals_by_tx: dict[str, dict],
+    days: int = 14,
+) -> None:
+    spots = {
+        int(s["spot_id"]): s.get("spot_name") or ""
+        for s in (poster.get_spots() or [])
+        if s.get("spot_id") is not None
+    }
+    txs = poster.get_transactions_for_client(client_id, days=days, include_products=False)
+    for t in sorted(txs, key=lambda x: x.get("date_close_date") or "", reverse=True)[:40]:
+        tid = str(t.get("transaction_id") or poster.transaction_id_from_row(t) or "")
+        if not tid:
+            continue
+        acc = accruals_by_tx.get(tid)
+        try:
+            spot = spots.get(int(t.get("spot_id") or 0), "") or "Крафт Кава"
+        except (TypeError, ValueError):
+            spot = "Крафт Кава"
+        existing = by_tid.get(tid)
+        by_tid[tid] = {
+            "transaction_id": tid,
+            "date": t.get("date_close_date") or (existing or {}).get("date") or "—",
+            "spot": spot if spot != "Крафт Кава" else ((existing or {}).get("spot") or spot),
+            "sum": poster.from_minor(t.get("sum") or t.get("payed_sum")),
+            "payed": poster.from_minor(t.get("payed_sum")),
+            "bonus_spent": poster.from_minor(t.get("payed_bonus") or 0),
+            "cashback_uah": float(acc.get("bonus_uah") or 0)
+            if acc
+            else float((existing or {}).get("cashback_uah") or 0),
+            "items": list((existing or {}).get("items") or []),
+        }
+
+
+def _backfill_history_items(by_tid: dict[str, dict], *, limit: int = 6) -> None:
+    missing = [p for p in by_tid.values() if not p.get("items")][:limit]
+    if not missing:
+        return
+    spots = {
+        int(s["spot_id"]): s.get("spot_name") or ""
+        for s in (poster.get_spots() or [])
+        if s.get("spot_id") is not None
+    }
+    for p in missing:
+        tid = p.get("transaction_id")
+        if not tid:
+            continue
+        try:
+            full = poster.get_transaction(tid)
+        except Exception:
+            continue
+        if not full:
+            continue
+        items = poster.tx_product_lines(full)
+        if items:
+            p["items"] = items
+        if (not p.get("spot") or p.get("spot") == "Крафт Кава") and full.get("spot_id"):
+            try:
+                sid = int(full.get("spot_id") or 0)
+                p["spot"] = spots.get(sid) or p.get("spot") or "Крафт Кава"
+            except (TypeError, ValueError):
+                pass
+        close = full.get("date_close_date") or full.get("date_close")
+        if close and (not p.get("date") or p.get("date") == "—"):
+            p["date"] = str(close)[:19]
+        try:
+            update_purchase_details(
+                tid,
+                products_json=json.dumps(items, ensure_ascii=False) if items else None,
+                spot_id=int(full.get("spot_id") or 0) or None,
+                spot_name=p.get("spot") if p.get("spot") != "Крафт Кава" else None,
+                date_close=str(close)[:19] if close else None,
+            )
+        except Exception:
+            pass
+
+
+async def api_history(request: web.Request) -> web.Response:
+    """Purchase history for mini-app.
+
+    Default: local DB only (instant).
+    ?sync=1: also pull recent Poster receipts (short timeout) + product names.
+    """
+    tg_user = _auth_user(request)
+    db_user = get_user(tg_user["id"])
+    if not db_user:
+        return web.json_response({"purchases": [], "bonuses": [], "source": "empty"})
+
+    tg_id = int(tg_user["id"])
+    client_id = db_user.get("poster_client_id")
+    want_sync = str(request.rel_url.query.get("sync") or "").strip() in ("1", "true", "yes")
+
+    accruals_by_tx: dict[str, dict] = {}
+    for acc in list_bonus_accruals_for_user(tg_id, limit=80):
+        tid = str(acc.get("transaction_id") or "")
+        if tid:
+            accruals_by_tx[tid] = acc
+
+    by_tid = _history_from_local(tg_id)
+    source = "local"
+    synced = False
+
+    if want_sync and client_id:
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    _merge_poster_into_history,
+                    by_tid,
+                    client_id=client_id,
+                    accruals_by_tx=accruals_by_tx,
+                    days=14,
+                ),
+                timeout=6,
+            )
+            synced = True
+            source = "local+poster"
+        except asyncio.TimeoutError:
+            log.warning("history sync timeout user=%s", tg_id)
+        except Exception as exc:
+            log.warning("history sync: %s", exc)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(_backfill_history_items, by_tid, limit=5),
+                timeout=5,
+            )
+        except Exception as exc:
+            log.debug("history items backfill: %s", exc)
+    elif not want_sync:
+        # Fire-and-forget: cache product names for next open (does not delay response)
+        missing = [p for p in by_tid.values() if not p.get("items")][:4]
+        if missing:
+            snapshot = {str(r["transaction_id"]): dict(r) for r in missing if r.get("transaction_id")}
+
+            async def _bg_backfill() -> None:
+                try:
+                    await asyncio.to_thread(lambda: _backfill_history_items(snapshot, limit=4))
+                except Exception:
+                    pass
+
+            asyncio.create_task(_bg_backfill())
+
+    purchases = sorted(
+        by_tid.values(),
+        key=lambda p: str(p.get("date") or ""),
+        reverse=True,
+    )[:40]
+
+    return web.json_response(
+        {
+            "purchases": purchases,
+            "bonuses": _history_bonuses(db_user),
+            "source": source,
+            "synced": synced,
+        }
+    )
 
 
 def _wallet_token(user_id: int, exp: int) -> str:

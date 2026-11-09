@@ -1535,14 +1535,41 @@
     historyLoading = true;
     if (appReady && state.tab === "history") render();
     try {
+      // 1) Instant: local DB only (no Poster wait)
       const history = await api("/history");
       state.history = history || { purchases: [], bonuses: [] };
+      historyLoading = false;
+      if (appReady && state.tab === "history") render();
+
+      // 2) Background: short Poster sync + product names, then refresh UI
+      try {
+        const synced = await api("/history?sync=1");
+        if (synced && typeof synced === "object") {
+          const prevN = (state.history.purchases || []).length;
+          const nextN = (synced.purchases || []).length;
+          const prevItems = (state.history.purchases || []).reduce(
+            (n, p) => n + ((p.items && p.items.length) || 0),
+            0
+          );
+          const nextItems = (synced.purchases || []).reduce(
+            (n, p) => n + ((p.items && p.items.length) || 0),
+            0
+          );
+          if (nextN !== prevN || nextItems !== prevItems || synced.synced) {
+            state.history = synced;
+            if (appReady && state.tab === "history") render();
+          }
+        }
+      } catch (e2) {
+        console.warn("history sync", e2);
+      }
     } catch (e) {
       console.warn("history load", e);
       if (!state.history) state.history = { purchases: [], bonuses: [] };
-    } finally {
       historyLoading = false;
       if (appReady && state.tab === "history") render();
+    } finally {
+      historyLoading = false;
     }
   }
 
