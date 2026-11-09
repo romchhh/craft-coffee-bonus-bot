@@ -472,4 +472,113 @@ def format_statistics_message():
     return message
 
 
+def generate_clients_export() -> tuple[str, int]:
+    """Excel of all registered clients with spend / Крафтики / referrals / venues.
+
+    Returns (filename, clients_count). Caller should delete the file after send.
+    """
+    from database_functions.clients_admin_db import iter_clients_stats_for_export
+
+    rows = iter_clients_stats_for_export()
+    export_rows = []
+    for r in rows:
+        referrer_label = (
+            r.get("referrer_name")
+            or r.get("referrer_first_name")
+            or (f"@{r['referrer_username']}" if r.get("referrer_username") else "")
+            or ""
+        )
+        export_rows.append(
+            {
+                "Telegram ID": r.get("user_id"),
+                "Username": (f"@{r['user_name']}" if r.get("user_name") else ""),
+                "Імʼя": r.get("display_name")
+                or " ".join(
+                    x for x in [r.get("user_first_name"), r.get("user_last_name")] if x
+                )
+                or "",
+                "Телефон": r.get("user_phone") or "",
+                "Картка": r.get("card_number") or "",
+                "Poster client_id": r.get("poster_client_id") or "",
+                "Дата народження": (str(r.get("birthday") or "")[:10] if r.get("birthday") else ""),
+                "Вік": r.get("age") if r.get("age") is not None else "",
+                "Реєстрація": r.get("join_date") or "",
+                "Остання активність": r.get("last_activity") or "",
+                "Крафтики заблоковано": "так" if int(r.get("bonuses_blocked") or 0) else "ні",
+                "Вітальний бонус": "так" if int(r.get("welcome_bonus_given") or 0) else "ні",
+                "Бонус ДН": "так" if int(r.get("birthday_bonus_given") or 0) else "ні",
+                "Покупок (чеків)": int(r.get("purchases_count") or 0),
+                "Витрачено грн": round(float(r.get("spent_uah") or 0), 2),
+                "Нараховано Крафтиків": round(float(r.get("bonus_earned_uah") or 0), 2),
+                "Списано Крафтиків": round(float(r.get("bonus_spent_uah") or 0), 2),
+                "Улюблена кавʼярня": r.get("top_spot") or "",
+                "Кавʼярні (усі)": r.get("spots_visited") or "",
+                "Привів (Telegram ID)": r.get("referred_by_user_id") or "",
+                "Привів (імʼя)": referrer_label,
+                "Запросив друзів": int(r.get("invited_friends") or 0),
+                "З них виплачено": int(r.get("invited_paid") or 0),
+            }
+        )
+
+    df = pd.DataFrame(export_rows)
+    current_date = datetime.now().strftime("%d.%m.%Y_%H-%M")
+    filename = f"clients_export_{current_date}.xlsx"
+
+    with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Клієнти", index=False)
+        ws = writer.sheets["Клієнти"]
+
+        header_fill = PatternFill(start_color="35221A", end_color="35221A", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin_border = Border(
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin"),
+        )
+
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+
+        widths = {
+            "A": 14,
+            "B": 16,
+            "C": 22,
+            "D": 16,
+            "E": 14,
+            "F": 14,
+            "G": 14,
+            "H": 8,
+            "I": 18,
+            "J": 18,
+            "K": 14,
+            "L": 12,
+            "M": 10,
+            "N": 12,
+            "O": 14,
+            "P": 16,
+            "Q": 14,
+            "R": 20,
+            "S": 28,
+            "T": 16,
+            "U": 20,
+            "V": 12,
+            "W": 12,
+        }
+        for col, width in widths.items():
+            ws.column_dimensions[col].width = width
+
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=len(df.columns) or 1):
+            for cell in row:
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+        ws.auto_filter.ref = ws.dimensions
+        ws.freeze_panes = "A2"
+
+    return filename, len(export_rows)
 

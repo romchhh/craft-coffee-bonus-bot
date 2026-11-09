@@ -230,3 +230,91 @@ def get_referrer_for_friend(friend_user_id: int) -> dict | None:
         (int(friend_user_id),),
     ).fetchone()
     return dict(row) if row else None
+
+
+def iter_clients_stats_for_export() -> list[dict[str, Any]]:
+    """All registered clients with spend / bonus / referral / venue stats (local DB)."""
+    age_expr = """
+        CASE
+          WHEN u.birthday IS NULL OR u.birthday IN ('', '0000-00-00') OR length(u.birthday) < 10 THEN NULL
+          ELSE
+            CAST(strftime('%Y', 'now') AS INTEGER) - CAST(substr(u.birthday, 1, 4) AS INTEGER)
+            - CASE
+                WHEN substr('0' || CAST(strftime('%m','now') AS TEXT), -2)
+                     || '-' || substr('0' || CAST(strftime('%d','now') AS TEXT), -2)
+                     < substr(u.birthday, 6, 5)
+                THEN 1 ELSE 0
+              END
+        END
+    """
+    rows = _conn().execute(
+        f"""
+        SELECT
+            u.user_id,
+            u.user_name,
+            u.user_first_name,
+            u.user_last_name,
+            u.display_name,
+            u.user_phone,
+            u.card_number,
+            u.poster_client_id,
+            u.birthday,
+            ({age_expr}) AS age,
+            u.join_date,
+            u.last_activity,
+            COALESCE(u.bonuses_blocked, 0) AS bonuses_blocked,
+            COALESCE(u.welcome_bonus_given, 0) AS welcome_bonus_given,
+            COALESCE(u.birthday_bonus_given, 0) AS birthday_bonus_given,
+            u.referred_by_user_id,
+            COALESCE((
+                SELECT SUM(pt.payed_sum_uah) FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id
+            ), 0) AS spent_uah,
+            COALESCE((
+                SELECT COUNT(*) FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id
+            ), 0) AS purchases_count,
+            COALESCE((
+                SELECT SUM(pt.bonus_uah) FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id
+            ), 0) AS bonus_earned_uah,
+            COALESCE((
+                SELECT SUM(pt.bonus_spent_uah) FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id
+            ), 0) AS bonus_spent_uah,
+            (
+                SELECT pt.spot_name FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id AND IFNULL(pt.spot_name, '') != ''
+                GROUP BY pt.spot_name
+                ORDER BY COUNT(*) DESC
+                LIMIT 1
+            ) AS top_spot,
+            (
+                SELECT GROUP_CONCAT(DISTINCT pt.spot_name)
+                FROM processed_transactions pt
+                WHERE pt.telegram_user_id = u.user_id AND IFNULL(pt.spot_name, '') != ''
+            ) AS spots_visited,
+            (
+                SELECT COUNT(*) FROM referrals r WHERE r.referrer_user_id = u.user_id
+            ) AS invited_friends,
+            (
+                SELECT COUNT(*) FROM referrals r
+                WHERE r.referrer_user_id = u.user_id AND r.status = 'paid'
+            ) AS invited_paid,
+            ref_u.display_name AS referrer_name,
+            ref_u.user_first_name AS referrer_first_name,
+            ref_u.user_name AS referrer_username
+        FROM users u
+        LEFT JOIN users ref_u ON ref_u.user_id = u.referred_by_user_id
+        WHERE u.registered = 1
+        ORDER BY COALESCE(u.join_date, '') DESC, u.user_id DESC
+        """
+    ).fetchall()
+    today = date.today()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        if d.get("age") is None:
+            d["age"] = _age_years(d.get("birthday"), today)
+        out.append(d)
+    return out

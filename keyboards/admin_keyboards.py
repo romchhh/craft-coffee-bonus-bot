@@ -22,6 +22,7 @@ def get_clients_hub_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📋 Усі клієнти", callback_data="clients_list:join_desc:0")],
+            [InlineKeyboardButton(text="📊 Excel зі статистикою", callback_data="clients_export_xlsx")],
             [InlineKeyboardButton(text="↕️ Сортування / фільтри", callback_data="clients_sort_menu")],
             [InlineKeyboardButton(text="👥 Хто кого привів", callback_data="clients_refs:0")],
             [InlineKeyboardButton(text="🔎 Пошук клієнта", callback_data="clients_search")],

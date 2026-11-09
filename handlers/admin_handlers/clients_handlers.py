@@ -161,7 +161,7 @@ async def clients_hub(message: types.Message, state: FSMContext):
         "👤 <b>Клієнти</b>\n\n"
         f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
         f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
-        "📋 Усі клієнти · сортування · хто кого привів · пошук.",
+        "📋 Усі клієнти · 📊 Excel · сортування · хто кого привів · пошук.",
         parse_mode="HTML",
         reply_markup=get_clients_hub_keyboard(),
     )
@@ -179,11 +179,54 @@ async def clients_hub_cb(callback: types.CallbackQuery, state: FSMContext):
         "👤 <b>Клієнти</b>\n\n"
         f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
         f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
-        "📋 Усі клієнти · сортування · хто кого привів · пошук.",
+        "📋 Усі клієнти · 📊 Excel · сортування · хто кого привів · пошук.",
         parse_mode="HTML",
         reply_markup=get_clients_hub_keyboard(),
     )
     await callback.answer()
+
+
+@router.callback_query(IsAdmin(), F.data == "clients_export_xlsx")
+async def clients_export_xlsx(callback: types.CallbackQuery):
+    import os
+    from datetime import datetime
+
+    from aiogram.types import FSInputFile
+
+    from utils.admin_functions import generate_clients_export
+
+    await callback.answer()
+    await callback.message.answer(
+        "📊 Формую Excel з клієнтами та статистикою…\n"
+        "<i>Для великої бази це може зайняти хвилину.</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        filename, count = await asyncio.to_thread(generate_clients_export)
+    except Exception as exc:
+        log.exception("clients excel export")
+        await callback.message.answer(f"Не вдалося сформувати Excel: {_esc(exc)}")
+        return
+
+    try:
+        await callback.message.answer_document(
+            FSInputFile(filename),
+            caption=(
+                f"📊 <b>Клієнти зі статистикою</b>\n"
+                f"Записів: <b>{count}</b>\n"
+                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+                "<i>Витрати / Крафтики / кавʼярні — за чеками в боті. "
+                "У файлі увімкнено фільтри Excel.</i>"
+            ),
+            parse_mode="HTML",
+        )
+    finally:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
 
 
 async def _render_clients_list(
