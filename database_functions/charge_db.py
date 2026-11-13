@@ -50,6 +50,10 @@ def migrate_loyalty_columns() -> None:
         "charge_decay_cursor": "TEXT",
         "bonus_burned_at": "TEXT",
         "card_short_id": "TEXT",
+        "charges_today": "INTEGER DEFAULT 0",
+        "last_bonus_accrual_at": "TEXT",
+        "bonus_expire_reminded_at": "TEXT",
+        "registered_at": "TEXT",
     }
     defaults = {
         "loyalty_tier": "1",
@@ -195,6 +199,9 @@ def get_loyalty_row(user_id: int) -> dict | None:
         "bonus_burned_at": user.get("bonus_burned_at"),
         "poster_client_id": user.get("poster_client_id"),
         "card_short_id": user.get("card_short_id"),
+        "charges_today": int(user.get("charges_today") or 0),
+        "last_bonus_accrual_at": user.get("last_bonus_accrual_at"),
+        "bonus_expire_reminded_at": user.get("bonus_expire_reminded_at"),
     }
 
 
@@ -209,6 +216,9 @@ def save_loyalty_row(user_id: int, **fields) -> None:
         "charge_decay_cursor",
         "bonus_burned_at",
         "card_short_id",
+        "charges_today",
+        "last_bonus_accrual_at",
+        "bonus_expire_reminded_at",
     }
     parts = []
     values = []

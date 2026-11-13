@@ -14,6 +14,8 @@ import asyncio
 
 
 router = Router()
+router.message.filter(IsAdmin())
+router.callback_query.filter(IsAdmin())
 
 
 user_data = {}

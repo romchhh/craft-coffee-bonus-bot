@@ -189,6 +189,18 @@ def _pay_reward(user: dict, amount: float, *, note: str) -> float:
     try:
         poster.change_client_bonus(int(cid), amount)
         invalidate_client(int(cid))
+        try:
+            from database_functions.client_db import touch_bonus_accrual
+
+            touch_bonus_accrual(int(user["user_id"]))
+        except Exception:
+            pass
+        try:
+            from services.wallet_sync import sync_wallets_for_user
+
+            sync_wallets_for_user(int(user["user_id"]))
+        except Exception:
+            pass
         log.info("quest reward user=%s +%s (%s)", user.get("user_id"), amount, note)
         return amount
     except Exception as exc:

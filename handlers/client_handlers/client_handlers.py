@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import html
 import logging
-import re
 from aiogram import Router, types, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, ReplyKeyboardRemove
 
 from main import bot
-from config import WEBAPP_URL
+from config import WEBAPP_URL, administrators
 from database_functions.settings_db import get_welcome_bonus_uah
 from keyboards.client_keyboards import (
     get_start_keyboard,
@@ -32,15 +32,19 @@ from Content.texts import (
     get_manager_text,
     get_info_text,
 )
+from database_functions.admin_db import get_all_admin_ids
 from database_functions.client_db import (
     check_user,
     add_user,
     update_user_activity,
     is_registered,
     get_user,
+    get_user_by_poster_client_id,
     save_registration,
     is_mailing_opted_out,
     set_mailing_opt_out,
+    touch_bonus_accrual,
+    welcome_already_given,
 )
 from database_functions.create_dbs import create_dbs
 from database_functions.links_db import increment_link_count
@@ -51,6 +55,70 @@ from services.barcode_image import render_card_barcode_png
 
 log = logging.getLogger(__name__)
 router = Router()
+
+
+class LoyaltyCardError(Exception):
+    def __init__(self, user_message: str, *, cause: BaseException | None = None):
+        super().__init__(user_message)
+        self.user_message = user_message
+        self.cause = cause
+
+
+class PosterClientBoundError(LoyaltyCardError):
+    def __init__(self, *, poster_client_id: int, owner_telegram_id: int, phone: str):
+        super().__init__(
+            "Цей номер уже прив’язаний до іншого Telegram-акаунта.\n"
+            "Якщо це твоя картка — напиши в підтримку, адміністратор допоможе."
+        )
+        self.poster_client_id = poster_client_id
+        self.owner_telegram_id = owner_telegram_id
+        self.phone = phone
+
+
+def _reg_error_text(exc: BaseException) -> str:
+    if isinstance(exc, LoyaltyCardError):
+        return exc.user_message
+    return (
+        "Не вдалося оформити картку. Спробуй ще раз за хвилину "
+        "або напиши в підтримку."
+    )
+
+
+def _html_name(name: str | None) -> str:
+    return html.escape((name or "").strip())
+
+
+async def _notify_admins_rebinding(
+    *,
+    requester_id: int,
+    requester_name: str,
+    phone: str,
+    poster_client_id: int,
+    owner_telegram_id: int,
+) -> None:
+    text = (
+        "⚠️ <b>Спроба прив’язати чужу картку</b>\n\n"
+        f"Telegram: <code>{requester_id}</code> ({_html_name(requester_name) or '—'})\n"
+        f"Телефон: <code>{html.escape(phone)}</code>\n"
+        f"Poster client_id: <code>{poster_client_id}</code>\n"
+        f"Вже прив’язано до Telegram: <code>{owner_telegram_id}</code>"
+    )
+    admin_ids: set[int] = set()
+    for x in administrators or []:
+        try:
+            admin_ids.add(int(x))
+        except (TypeError, ValueError):
+            pass
+    try:
+        for x in get_all_admin_ids() or []:
+            admin_ids.add(int(x))
+    except Exception:
+        pass
+    for aid in admin_ids:
+        try:
+            await bot.send_message(aid, text, parse_mode="HTML")
+        except Exception as exc:
+            log.info("admin rebind notify failed admin=%s: %s", aid, exc)
 
 
 async def _ensure_user(message: types.Message) -> None:
@@ -165,24 +233,24 @@ async def reg_name(message: types.Message, state: FSMContext):
 @router.message(Registration.phone, F.contact)
 async def reg_phone_contact(message: types.Message, state: FSMContext):
     contact = message.contact
-    if contact.user_id and contact.user_id != message.from_user.id:
-        await message.answer("Надішли саме свій контакт кнопкою нижче.")
+    # Only accept the user's own contact from the Telegram share button.
+    if not contact or contact.user_id != message.from_user.id:
+        await message.answer(
+            "Номер приймається лише кнопкою «Поділитися номером» нижче "
+            "(свій контакт із Telegram).",
+            reply_markup=get_phone_keyboard(),
+        )
         return
     await _save_phone_and_finish(message, state, contact.phone_number)
 
 
 @router.message(Registration.phone)
 async def reg_phone_text(message: types.Message, state: FSMContext):
-    raw = (message.text or "").strip()
-    try:
-        phone = poster.normalize_phone(raw)
-    except ValueError:
-        await message.answer(
-            "Не схоже на український номер. Натисни кнопку «Поділитися номером» або введи як 0501234567.",
-            reply_markup=get_phone_keyboard(),
-        )
-        return
-    await _save_phone_and_finish(message, state, phone)
+    await message.answer(
+        "Ручне введення номера вимкнено.\n"
+        "Натисни кнопку «Поділитися номером» нижче 👇",
+        reply_markup=get_phone_keyboard(),
+    )
 
 
 async def _save_phone_and_finish(message: types.Message, state: FSMContext, raw_phone: str):
@@ -215,11 +283,31 @@ async def _finish_registration(
             phone=data["phone"],
             birthday=None,
         )
+    except PosterClientBoundError as exc:
+        log.warning(
+            "Registration rebind blocked user=%s phone=%s poster=%s owner=%s",
+            message.from_user.id,
+            data["phone"],
+            exc.poster_client_id,
+            exc.owner_telegram_id,
+        )
+        await _notify_admins_rebinding(
+            requester_id=message.from_user.id,
+            requester_name=data.get("display_name") or message.from_user.first_name or "",
+            phone=data["phone"],
+            poster_client_id=exc.poster_client_id,
+            owner_telegram_id=exc.owner_telegram_id,
+        )
+        await message.answer(
+            _reg_error_text(exc),
+            parse_mode="HTML",
+            reply_markup=get_start_keyboard(message.from_user.id, registered=False),
+        )
+        return
     except Exception as exc:
         log.exception("Registration failed for %s", message.from_user.id)
         await message.answer(
-            "Не вдалося створити картку. Спробуй /start трохи пізніше.\n"
-            f"<code>{exc}</code>",
+            _reg_error_text(exc),
             parse_mode="HTML",
             reply_markup=get_start_keyboard(message.from_user.id, registered=False),
         )
@@ -234,6 +322,8 @@ async def _finish_registration(
         card_number=card_number,
         welcome_bonus_given=bonus_given,
     )
+    if bonus_given:
+        touch_bonus_accrual(message.from_user.id)
     from database_functions.charge_db import init_loyalty_for_user
     from services.referrals import bind_referrer_on_registration
     from services.quests import build_quests_ui
@@ -329,6 +419,14 @@ async def _create_loyalty_card(
 
     if existing:
         client_id = int(existing["client_id"])
+        linked = get_user_by_poster_client_id(client_id)
+        if linked and int(linked["user_id"]) != int(telegram_id):
+            raise PosterClientBoundError(
+                poster_client_id=client_id,
+                owner_telegram_id=int(linked["user_id"]),
+                phone=phone,
+            )
+
         current_card = (existing.get("card_number") or "").strip()
         if is_valid_card_number(current_card):
             card_number = current_card
@@ -348,13 +446,25 @@ async def _create_loyalty_card(
         except poster.PosterError:
             pass
 
-        # Welcome bonus only if balance is empty / near zero
-        balance = poster.from_minor(existing.get("bonus"))
+        # Welcome once per phone / Poster client — never re-grant on empty balance.
         bonus_given = False
-        if balance < 1:
-            poster.set_bonus(client_id, get_welcome_bonus_uah())
-            bonus_given = True
+        if not welcome_already_given(phone=phone, poster_client_id=client_id):
+            amount = get_welcome_bonus_uah()
+            if amount > 0:
+                poster.set_bonus(client_id, amount)
+                bonus_given = True
         return client_id, card_number, bonus_given
+
+    if welcome_already_given(phone=phone):
+        card_number = allocate_card_number()
+        client_id = poster.create_client(
+            name=display_name,
+            phone=phone,
+            card_number=card_number,
+            birthday=birthday,
+            bonus_uah=0,
+        )
+        return client_id, card_number, False
 
     card_number = allocate_card_number()
     client_id = poster.create_client(

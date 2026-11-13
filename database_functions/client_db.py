@@ -58,6 +58,14 @@ def _migrate():
         "mailing_opt_out": "INTEGER DEFAULT 0",
         # 1 = cashback / auto Крафтики accrual blocked (admin)
         "bonuses_blocked": "INTEGER DEFAULT 0",
+        # When the loyalty card was first issued (fallback: join_date)
+        "registered_at": "TEXT",
+        # Last time Крафтики were credited (burn clock starts here)
+        "last_bonus_accrual_at": "TEXT",
+        # Kyiv day we already sent the 7-day burn reminder
+        "bonus_expire_reminded_at": "TEXT",
+        # Charges credited on charge_visit_day (max 4/day)
+        "charges_today": "INTEGER DEFAULT 0",
     }
     for name, typedef in additions.items():
         if name not in cols:
@@ -121,6 +129,7 @@ def save_registration(
 ):
     # Display code under barcode == Poster card_number (same value).
     short = (card_short_id or card_number or "").strip() or None
+    now = kyiv_now_str()
     cursor.execute(
         """
         UPDATE users SET
@@ -132,6 +141,7 @@ def save_registration(
             card_short_id = ?,
             registered = 1,
             welcome_bonus_given = ?,
+            registered_at = COALESCE(registered_at, ?),
             last_activity = ?
         WHERE user_id = ?
         """,
@@ -143,11 +153,92 @@ def save_registration(
             card_number,
             short,
             1 if welcome_bonus_given else 0,
-            kyiv_now_str(),
+            now,
+            now,
             user_id,
         ),
     )
     conn.commit()
+
+
+def welcome_already_given(
+    *,
+    phone: str | None = None,
+    poster_client_id: int | None = None,
+) -> bool:
+    """True if welcome bonus was already issued for this phone or Poster client."""
+    if phone:
+        row = cursor.execute(
+            "SELECT 1 FROM users WHERE user_phone = ? AND welcome_bonus_given = 1 LIMIT 1",
+            (phone,),
+        ).fetchone()
+        if row:
+            return True
+    if poster_client_id:
+        row = cursor.execute(
+            "SELECT 1 FROM users WHERE poster_client_id = ? AND welcome_bonus_given = 1 LIMIT 1",
+            (int(poster_client_id),),
+        ).fetchone()
+        if row:
+            return True
+    return False
+
+
+def touch_bonus_accrual(user_id: int | str) -> None:
+    """Reset the 90-day burn clock after any Крафтики credit."""
+    now = kyiv_now_str()
+    cursor.execute(
+        """
+        UPDATE users SET
+            last_bonus_accrual_at = ?,
+            bonus_burned_at = NULL,
+            bonus_expire_reminded_at = NULL,
+            last_activity = ?
+        WHERE user_id = ?
+        """,
+        (now, now, user_id),
+    )
+    conn.commit()
+
+
+def mark_bonus_expire_reminded(user_id: int | str) -> None:
+    cursor.execute(
+        "UPDATE users SET bonus_expire_reminded_at = ? WHERE user_id = ?",
+        (kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
+def card_age_days(user: dict | None) -> int | None:
+    """Days since the loyalty card was issued (registered_at → join_date)."""
+    if not user:
+        return None
+    raw = (user.get("registered_at") or user.get("join_date") or "").strip()
+    if not raw:
+        return None
+    from datetime import datetime
+
+    from utils.kyiv_time import KYIV_TZ, now_kyiv
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(raw[:19] if len(fmt) > 10 else raw[:10], fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=KYIV_TZ)
+            return max(0, (now_kyiv().date() - dt.date()).days)
+        except ValueError:
+            continue
+    return None
+
+
+def list_registered_users_for_bonus_jobs() -> list[dict]:
+    rows = cursor.execute(
+        """
+        SELECT * FROM users
+        WHERE registered = 1 AND poster_client_id IS NOT NULL
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def set_referred_by(user_id: int | str, referrer_user_id: int | None) -> None:

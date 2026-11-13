@@ -5,9 +5,11 @@ import logging
 from datetime import datetime
 
 from database_functions.client_db import (
+    card_age_days,
     get_user,
     mark_annual_birthday_year,
     mark_birthday_bonus_given,
+    touch_bonus_accrual,
 )
 from database_functions.settings_db import (
     get_annual_birthday_bonus_uah,
@@ -19,6 +21,16 @@ from utils.kyiv_time import now_kyiv
 
 log = logging.getLogger(__name__)
 
+# Prevent registering with today's birthday and immediately claiming + welcome.
+BIRTHDAY_MIN_CARD_AGE_DAYS = 5
+
+
+def _card_old_enough(user: dict) -> bool:
+    age = card_age_days(user)
+    if age is None:
+        return False
+    return age >= BIRTHDAY_MIN_CARD_AGE_DAYS
+
 
 def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     user = get_user(user_id)
@@ -26,6 +38,13 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
         return 0.0
     if int(user.get("bonuses_blocked") or 0):
         log.info("birthday bonus skipped — blocked user=%s", user_id)
+        return 0.0
+    if not _card_old_enough(user):
+        log.info(
+            "birthday bonus deferred — card age < %sd user=%s",
+            BIRTHDAY_MIN_CARD_AGE_DAYS,
+            user_id,
+        )
         return 0.0
     amount = get_birthday_bonus_uah()
     if amount <= 0 or not poster_client_id:
@@ -38,6 +57,13 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
         log.warning("birthday bonus failed user=%s: %s", user_id, exc)
         raise
     mark_birthday_bonus_given(user_id)
+    touch_bonus_accrual(user_id)
+    try:
+        from services.wallet_sync import sync_wallets_for_user
+
+        sync_wallets_for_user(user_id)
+    except Exception:
+        pass
     return amount
 
 
@@ -46,6 +72,8 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
     if not user or not user.get("registered"):
         return 0.0
     if int(user.get("bonuses_blocked") or 0):
+        return 0.0
+    if not _card_old_enough(user):
         return 0.0
     bday = user.get("birthday")
     if not bday or bday in ("0000-00-00",):
@@ -79,6 +107,13 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
         log.warning("annual birthday failed user=%s: %s", user_id, exc)
         return 0.0
     mark_annual_birthday_year(user_id, now.year)
+    touch_bonus_accrual(user_id)
+    try:
+        from services.wallet_sync import sync_wallets_for_user
+
+        sync_wallets_for_user(user_id)
+    except Exception:
+        pass
     return amount
 
 

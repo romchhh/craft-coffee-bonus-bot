@@ -1,12 +1,13 @@
 """Process closed Poster receipts: cashback credit + Telegram notify."""
 from __future__ import annotations
 
+import html
 import json
 import logging
 import math
 from typing import Any
 
-from database_functions.client_db import get_user_by_poster_client_id
+from database_functions.client_db import get_user_by_poster_client_id, touch_bonus_accrual
 from database_functions.settings_db import (
     is_transaction_processed,
     mark_transaction_processed,
@@ -114,8 +115,8 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     if closed_raw:
         closed_at = parse_purchase_datetime(str(closed_raw))
 
-    # Mark early to avoid double credit on webhook retry (also seeds mini-app history)
-    mark_transaction_processed(
+    # Atomic claim — second webhook/cron runner must not double-credit
+    claimed = mark_transaction_processed(
         tid,
         poster_client_id=client_id,
         telegram_user_id=int(user["user_id"]),
@@ -127,6 +128,8 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         spot_name=_spot_name(spot_id),
         date_close=str(closed_raw)[:19] if closed_raw else None,
     )
+    if not claimed:
+        return {"status": "skip", "reason": "already_processed"}
 
     try:
         on_purchase_closed(int(user["user_id"]), payed_sum_uah, closed_at)
@@ -152,10 +155,11 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         )
         if ref_result.get("status") == "owner_review" and bot is not None:
             try:
+                friend = html.escape(str(ref_result.get("friend_name") or "Друг"))
                 await bot.send_message(
                     int(ref_result["referrer_user_id"]),
                     "⏳ <b>Винагорода на перевірці</b>\n\n"
-                    f"Запрошення друга <b>{ref_result.get('friend_name') or 'Друг'}</b> "
+                    f"Запрошення друга <b>{friend}</b> "
                     "отримано. Нарахування після перевірки адміністратора.",
                     parse_mode="HTML",
                 )
@@ -165,9 +169,11 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
         log.warning("referral on purchase failed user=%s: %s", user["user_id"], exc)
 
     balance_uah = None
+    credit_failed = False
     if bonus_uah > 0:
         try:
             poster.change_client_bonus(client_id, bonus_uah)
+            touch_bonus_accrual(int(user["user_id"]))
             try:
                 from services.poster_client_cache import invalidate_client
 
@@ -177,12 +183,27 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
             balance_uah = poster.get_client_bonus_uah(client_id)
         except Exception as exc:
             log.exception("change_client_bonus client=%s tx=%s", client_id, tid)
-            return {"status": "error", "reason": f"bonus_failed: {exc}"}
-    elif quest_events:
+            credit_failed = True
+    if balance_uah is None and (bonus_spent_uah > 0 or quest_events or credit_failed):
         try:
             balance_uah = poster.get_client_bonus_uah(client_id)
         except Exception:
             pass
+
+    # Refresh Apple / Google Wallet when balance changed (spend and/or credit)
+    if bonus_uah > 0 or bonus_spent_uah > 0:
+        try:
+            from services.wallet_sync import sync_wallets_for_user_async
+
+            await sync_wallets_for_user_async(
+                int(user["user_id"]),
+                bonus=balance_uah if balance_uah is not None else None,
+            )
+        except Exception as exc:
+            log.warning("wallet sync failed user=%s: %s", user["user_id"], exc)
+
+    if credit_failed:
+        return {"status": "error", "reason": "bonus_failed"}
 
     if bot is not None:
         try:
@@ -248,7 +269,8 @@ async def _send_thanks(
 ) -> None:
     from keyboards.client_keyboards import get_open_card_inline
 
-    who = f", {name}" if name else ""
+    safe_name = html.escape((name or "").strip())
+    who = f", {safe_name}" if safe_name else ""
     inline = get_open_card_inline()
     mini_line = (
         "\n\nВідкрий <b>цифрову картку</b> в мініапі — баланс і штрихкод завжди під рукою 👇"

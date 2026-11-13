@@ -815,7 +815,16 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
     try:
         poster.change_client_bonus(cid, amount)
         invalidate_client(cid)
+        from database_functions.client_db import touch_bonus_accrual
+
+        touch_bonus_accrual(uid)
         new_bal = poster.get_client_bonus_uah(cid)
+        try:
+            from services.wallet_sync import sync_wallets_for_user
+
+            sync_wallets_for_user(int(uid), bonus=new_bal)
+        except Exception:
+            pass
     except Exception as exc:
         log.exception("admin gift user=%s", uid)
         await message.answer(f"Не вдалося нарахувати в Poster: {_esc(exc)}")

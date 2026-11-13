@@ -176,14 +176,34 @@ async def _cron_loop(bot) -> None:
         except Exception:
             log.exception("loyalty cron tick #%s failed", tick)
         try:
-            from services.referrals import expire_stale_bound, process_due_referral_grants
+            from services.referrals import (
+                expire_paid_referral_rewards,
+                expire_stale_bound,
+                process_due_referral_grants,
+            )
 
             expire_stale_bound()
             grant_report = await process_due_referral_grants(bot=bot)
             if grant_report.get("granted") or grant_report.get("errors"):
                 log.info("referral grants: %s", grant_report)
+            expire_report = expire_paid_referral_rewards()
+            if expire_report.get("expired") or expire_report.get("errors"):
+                log.info("referral reward expiry: %s", expire_report)
         except Exception:
             log.exception("referral grant cron tick #%s failed", tick)
+        # Bonus burn / 7-day reminders — once per Kyiv calendar day
+        try:
+            from services.charge_loyalty import process_daily_bonus_expiry
+            from utils.kyiv_time import now_kyiv
+
+            day_key = now_kyiv().strftime("%Y-%m-%d")
+            if getattr(_cron_loop, "_bonus_expire_day", None) != day_key:
+                burn_report = await process_daily_bonus_expiry(bot=bot)
+                _cron_loop._bonus_expire_day = day_key  # type: ignore[attr-defined]
+                if burn_report.get("burned") or burn_report.get("reminded") or burn_report.get("errors"):
+                    log.info("bonus expiry daily: %s", burn_report)
+        except Exception:
+            log.exception("bonus expiry cron tick #%s failed", tick)
         try:
             await asyncio.wait_for(_cron_stop.wait(), timeout=LOYALTY_CRON_INTERVAL_SEC)
             log.info("loyalty cron stopped after tick #%s", tick)

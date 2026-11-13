@@ -179,6 +179,21 @@ def list_by_status(status: str) -> list[dict]:
     return [_row(r) for r in rows]
 
 
+def list_paid_expired(now_str: str) -> list[dict]:
+    """Paid referral rewards whose expires_at has passed."""
+    rows = cursor.execute(
+        """
+        SELECT * FROM referrals
+        WHERE status = ?
+          AND expires_at IS NOT NULL
+          AND expires_at <= ?
+        ORDER BY expires_at ASC
+        """,
+        (STATUS_PAID, now_str),
+    ).fetchall()
+    return [_row(r) for r in rows]
+
+
 def count_referrer_success_on_day(referrer_user_id: int, day_yyyy_mm_dd: str) -> int:
     row = cursor.execute(
         """

@@ -7,6 +7,7 @@ from database_functions.quests_db import create_quests_tables
 from database_functions.referrals_db import create_referrals_table
 from database_functions.promo_menu_db import create_promo_menu_table
 from database_functions.spots_db import create_spots_table
+from database_functions.wallet_passes_db import create_wallet_passes_tables
 from config import administrators
 
 
@@ -20,6 +21,7 @@ def create_dbs():
     create_spots_table()
     create_table_links()
     create_admins_table()
+    create_wallet_passes_tables()
 
     if administrators:
         superadmin_id = administrators[0]

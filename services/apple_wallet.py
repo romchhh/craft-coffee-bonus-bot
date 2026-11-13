@@ -159,9 +159,10 @@ def build_pass_json(
     card_number: str,
     phone: str | None,
     bonus: float,
+    authentication_token: str | None = None,
 ) -> dict:
     barcode_format = "PKBarcodeFormatEAN" if len(card_number) == 13 and card_number.isdigit() else "PKBarcodeFormatCode128"
-    return {
+    data: dict = {
         "formatVersion": 1,
         "passTypeIdentifier": APPLE_PASS_TYPE_ID,
         "serialNumber": serial,
@@ -186,6 +187,7 @@ def build_pass_json(
                     "key": "bonus",
                     "label": "Крафтики",
                     "value": f"{bonus:g}",
+                    "changeMessage": "Баланс Крафтиків: %@",
                     "textAlignment": "PKTextAlignmentRight",
                 }
             ],
@@ -217,6 +219,11 @@ def build_pass_json(
             ],
         },
     }
+    # Enable live updates via PassKit web service + APNs
+    if WEBAPP_URL and authentication_token:
+        data["webServiceURL"] = f"{WEBAPP_URL.rstrip('/')}/wallet/apple"
+        data["authenticationToken"] = authentication_token
+    return data
 
 
 def create_pkpass(
@@ -226,6 +233,7 @@ def create_pkpass(
     card_number: str,
     phone: str | None = None,
     bonus: float = 0,
+    authentication_token: str | None = None,
 ) -> bytes:
     if not is_configured():
         raise AppleWalletError(
@@ -241,6 +249,7 @@ def create_pkpass(
         card_number=card_number,
         phone=phone,
         bonus=bonus,
+        authentication_token=authentication_token,
     )
     files = {"pass.json": json.dumps(pass_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
     files.update(_ensure_assets())

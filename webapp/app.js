@@ -767,6 +767,7 @@
           <span>Завантаження…</span>
         </span>
       </button>
+      <p class="wallet-hint muted" id="wallet-hint-apple-note">Баланс у Wallet оновлюється автоматично. Якщо картка додана раніше — видали її й додай знову.</p>
       <p class="wallet-hint muted hidden" id="wallet-hint-apple" role="status"></p>`;
   }
 

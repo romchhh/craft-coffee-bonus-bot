@@ -284,7 +284,8 @@ def mark_transaction_processed(
     spot_id: int | None = None,
     spot_name: str | None = None,
     date_close: str | None = None,
-) -> None:
+) -> bool:
+    """Atomically claim a receipt. Returns True only if this caller inserted the row."""
     from utils.kyiv_time import kyiv_now_str
 
     cursor.execute(
@@ -309,7 +310,9 @@ def mark_transaction_processed(
             date_close,
         ),
     )
+    inserted = cursor.rowcount > 0
     conn.commit()
+    return inserted
 
 
 def mark_transaction_ignored(

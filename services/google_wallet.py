@@ -175,3 +175,28 @@ def create_save_link(card_number: str, name: str, bonus_uah: float) -> str:
     points = int(round(float(bonus_uah or 0)))
     object_id = _sync_object(session, card_number, name, points)
     return _save_url(object_id)
+
+
+def update_balance(card_number: str, name: str, bonus_uah: float) -> None:
+    """PATCH existing Google Wallet loyalty object balance (no save URL)."""
+    if not is_configured() or not card_number:
+        return
+    session = _get_session()
+    points = int(round(float(bonus_uah or 0)))
+    object_id = _object_id(card_number)
+    r = session.get(f"{BASE}/loyaltyObject/{object_id}")
+    if r.status_code == 404:
+        # Object not created yet — user hasn't added the card; skip quietly
+        return
+    if r.status_code != 200:
+        raise _api_error(r, "loyaltyObject get")
+    patch = {
+        "accountName": name,
+        "loyaltyPoints": {
+            "label": "Крафтики",
+            "balance": {"int": max(0, points)},
+        },
+    }
+    r = session.patch(f"{BASE}/loyaltyObject/{object_id}", json=patch)
+    if r.status_code != 200:
+        raise _api_error(r, "loyaltyObject patch")

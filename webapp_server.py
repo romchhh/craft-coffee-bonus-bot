@@ -88,14 +88,11 @@ def _render_public_html(filename: str) -> str:
 
 
 def _init_data_from_request(request: web.Request) -> str:
+    """Accept Telegram initData only from headers (never from URL/query)."""
     auth = (request.headers.get("Authorization") or "").strip()
     if auth.lower().startswith("tma "):
         return auth[4:].strip()
-    return (
-        request.headers.get("X-Telegram-Init-Data")
-        or request.rel_url.query.get("initData")
-        or ""
-    ).strip()
+    return (request.headers.get("X-Telegram-Init-Data") or "").strip()
 
 
 def _auth_user(request: web.Request) -> dict:
@@ -107,7 +104,7 @@ def _auth_user(request: web.Request) -> dict:
         )
 
     init_data = _init_data_from_request(request)
-    tg_user = parse_telegram_user(init_data, BOT_TOKEN, max_age_sec=0)
+    tg_user = parse_telegram_user(init_data, BOT_TOKEN, max_age_sec=86400)
     if tg_user:
         return tg_user
     if WEBAPP_DEV:
@@ -353,11 +350,19 @@ async def api_me(request: web.Request) -> web.Response:
         photo_url = f"/api/avatar?t={_wallet_token(int(tg_user['id']), exp)}"
 
     try:
+        # Deferred one-time birthday grant (card must be ≥5 days old)
+        if db_user.get("birthday") and not db_user.get("birthday_bonus_given"):
+            added = grant_birthday_bonus(
+                int(tg_user["id"]),
+                int(db_user["poster_client_id"]) if db_user.get("poster_client_id") else None,
+            )
+            if added > 0 and db_user.get("poster_client_id"):
+                bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
         annual = maybe_grant_annual_birthday(int(tg_user["id"]))
         if annual > 0:
             bonus = poster.get_client_bonus_uah(db_user["poster_client_id"]) if db_user.get("poster_client_id") else bonus
     except Exception as exc:
-        log.warning("annual birthday check: %s", exc)
+        log.warning("birthday check: %s", exc)
 
     loyalty = build_loyalty_ui(int(tg_user["id"]), bonus)
     phone_raw = db_user.get("user_phone") or ""
@@ -910,7 +915,11 @@ async def api_wallet_google_link(request: web.Request) -> web.Response:
             bonus,
         )
     except google_wallet.GoogleWalletError as exc:
-        return web.json_response({"error": str(exc)}, status=503)
+        log.warning("google wallet: %s", exc)
+        return web.json_response(
+            {"error": "Google Wallet тимчасово недоступний. Спробуй пізніше."},
+            status=503,
+        )
     except ModuleNotFoundError as exc:
         if "google" in str(exc):
             log.error("google-auth not installed on server")
@@ -924,9 +933,48 @@ async def api_wallet_google_link(request: web.Request) -> web.Response:
         raise
     except Exception as exc:
         log.exception("google wallet link")
-        return web.json_response({"error": f"Не вдалося підготувати Google Wallet: {exc}"}, status=500)
+        return web.json_response(
+            {"error": "Не вдалося підготувати Google Wallet. Спробуй пізніше."},
+            status=500,
+        )
 
     return web.json_response({"url": url})
+
+
+def _build_user_pkpass(db_user: dict) -> bytes:
+    from database_functions import wallet_passes_db as wdb
+
+    user_id = int(db_user["user_id"])
+    serial = wdb.serial_for_user(db_user)
+    pass_row = wdb.ensure_pass_record(user_id, serial)
+    bonus = 0.0
+    if db_user.get("poster_client_id"):
+        try:
+            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
+        except Exception:
+            pass
+    return apple_wallet.create_pkpass(
+        serial=serial,
+        name=db_user.get("display_name") or db_user.get("user_first_name") or "Гість",
+        card_number=db_user["card_number"],
+        phone=db_user.get("user_phone"),
+        bonus=bonus,
+        authentication_token=pass_row["auth_token"],
+    )
+
+
+def _apple_pass_auth(request: web.Request, serial: str) -> dict | None:
+    """Validate Authorization: ApplePass <token> against stored pass auth."""
+    from database_functions import wallet_passes_db as wdb
+
+    auth = (request.headers.get("Authorization") or "").strip()
+    if not auth.lower().startswith("applepass "):
+        return None
+    token = auth[10:].strip()
+    row = wdb.get_pass_by_serial(serial)
+    if not row or not hmac.compare_digest(str(row.get("auth_token") or ""), token):
+        return None
+    return row
 
 
 async def api_wallet_pkpass(request: web.Request) -> web.Response:
@@ -939,26 +987,20 @@ async def api_wallet_pkpass(request: web.Request) -> web.Response:
     if not db_user or not db_user.get("registered") or not db_user.get("card_number"):
         return web.json_response({"error": "Картку не знайдено"}, status=404)
 
-    bonus = 0.0
-    if db_user.get("poster_client_id"):
-        try:
-            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
-        except Exception:
-            pass
-
     try:
-        pkpass = apple_wallet.create_pkpass(
-            serial=f"craft-{db_user.get('poster_client_id') or user_id}-{db_user['card_number']}",
-            name=db_user.get("display_name") or db_user.get("user_first_name") or "Гість",
-            card_number=db_user["card_number"],
-            phone=db_user.get("user_phone"),
-            bonus=bonus,
-        )
+        pkpass = await asyncio.to_thread(_build_user_pkpass, db_user)
     except apple_wallet.AppleWalletError as exc:
-        return web.json_response({"error": str(exc)}, status=503)
+        log.warning("apple wallet: %s", exc)
+        return web.json_response(
+            {"error": "Apple Wallet тимчасово недоступний. Спробуй пізніше."},
+            status=503,
+        )
     except Exception as exc:
         log.exception("pkpass")
-        return web.json_response({"error": f"Не вдалося створити pass: {exc}"}, status=500)
+        return web.json_response(
+            {"error": "Не вдалося створити pass. Спробуй пізніше."},
+            status=500,
+        )
 
     return web.Response(
         body=pkpass,
@@ -968,6 +1010,133 @@ async def api_wallet_pkpass(request: web.Request) -> web.Response:
             "Cache-Control": "no-store",
         },
     )
+
+
+async def apple_wallet_register(request: web.Request) -> web.Response:
+    """POST /wallet/apple/v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}"""
+    from config import APPLE_PASS_TYPE_ID
+    from database_functions import wallet_passes_db as wdb
+
+    device_id = request.match_info["deviceLibraryIdentifier"]
+    pass_type = request.match_info["passTypeIdentifier"]
+    serial = request.match_info["serialNumber"]
+    if APPLE_PASS_TYPE_ID and pass_type != APPLE_PASS_TYPE_ID:
+        return web.Response(status=401)
+    pass_row = _apple_pass_auth(request, serial)
+    if not pass_row:
+        return web.Response(status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    push_token = (body.get("pushToken") or "").strip()
+    if not push_token:
+        return web.Response(status=400)
+    created = wdb.register_device(
+        device_library_id=device_id,
+        push_token=push_token,
+        pass_type_id=pass_type,
+        serial_number=serial,
+        user_id=int(pass_row["user_id"]),
+    )
+    return web.Response(status=201 if created else 200)
+
+
+async def apple_wallet_unregister(request: web.Request) -> web.Response:
+    from config import APPLE_PASS_TYPE_ID
+    from database_functions import wallet_passes_db as wdb
+
+    device_id = request.match_info["deviceLibraryIdentifier"]
+    pass_type = request.match_info["passTypeIdentifier"]
+    serial = request.match_info["serialNumber"]
+    if APPLE_PASS_TYPE_ID and pass_type != APPLE_PASS_TYPE_ID:
+        return web.Response(status=401)
+    if not _apple_pass_auth(request, serial):
+        return web.Response(status=401)
+    wdb.unregister_device(
+        device_library_id=device_id,
+        pass_type_id=pass_type,
+        serial_number=serial,
+    )
+    return web.Response(status=200)
+
+
+async def apple_wallet_device_serials(request: web.Request) -> web.Response:
+    """GET …/devices/{id}/registrations/{passTypeId}?passesUpdatedSince=tag"""
+    from config import APPLE_PASS_TYPE_ID
+    from database_functions import wallet_passes_db as wdb
+
+    device_id = request.match_info["deviceLibraryIdentifier"]
+    pass_type = request.match_info["passTypeIdentifier"]
+    if APPLE_PASS_TYPE_ID and pass_type != APPLE_PASS_TYPE_ID:
+        return web.Response(status=401)
+    since = request.rel_url.query.get("passesUpdatedSince")
+    serials = wdb.list_serials_for_device(
+        device_id, pass_type, passes_updated_since=since or None
+    )
+    if not serials:
+        return web.Response(status=204)
+    from utils.kyiv_time import kyiv_now_str
+
+    last_tag = kyiv_now_str().replace(" ", "T")
+    # Prefer max updated_tag among matching passes
+    tags = []
+    for s in serials:
+        row = wdb.get_pass_by_serial(s)
+        if row and row.get("updated_tag"):
+            tags.append(row["updated_tag"])
+    if tags:
+        last_tag = max(tags)
+    return web.json_response(
+        {"lastUpdated": last_tag, "serialNumbers": serials},
+        headers={"Content-Type": "application/json"},
+    )
+
+
+async def apple_wallet_get_pass(request: web.Request) -> web.Response:
+    """GET /wallet/apple/v1/passes/{passTypeIdentifier}/{serialNumber}"""
+    from config import APPLE_PASS_TYPE_ID
+    from database_functions import wallet_passes_db as wdb
+
+    pass_type = request.match_info["passTypeIdentifier"]
+    serial = request.match_info["serialNumber"]
+    if APPLE_PASS_TYPE_ID and pass_type != APPLE_PASS_TYPE_ID:
+        return web.Response(status=401)
+    pass_row = _apple_pass_auth(request, serial)
+    if not pass_row:
+        return web.Response(status=401)
+
+    # If-Modified-Since: Apple may send the previous update tag / date
+    ims = request.headers.get("If-Modified-Since")
+    if ims and pass_row.get("updated_tag") and ims.strip() == str(pass_row["updated_tag"]):
+        return web.Response(status=304)
+
+    db_user = get_user(pass_row["user_id"])
+    if not db_user or not db_user.get("card_number"):
+        return web.Response(status=404)
+    try:
+        pkpass = await asyncio.to_thread(_build_user_pkpass, db_user)
+    except Exception:
+        log.exception("apple wallet get pass serial=%s", serial)
+        return web.Response(status=500)
+
+    return web.Response(
+        body=pkpass,
+        headers={
+            "Content-Type": "application/vnd.apple.pkpass",
+            "Last-Modified": str(pass_row.get("updated_tag") or ""),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+async def apple_wallet_log(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+        log.info("apple wallet device log: %s", body)
+    except Exception:
+        pass
+    return web.Response(status=200)
 
 
 async def poster_webhook(request: web.Request) -> web.Response:
@@ -1056,6 +1225,24 @@ def create_app() -> web.Application:
     app.router.add_get("/api/wallet/link", api_wallet_link)
     app.router.add_get("/api/wallet/google/link", api_wallet_google_link)
     app.router.add_get("/api/wallet/apple.pkpass", api_wallet_pkpass)
+    # PassKit web service (Apple Wallet live updates)
+    app.router.add_post(
+        "/wallet/apple/v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}",
+        apple_wallet_register,
+    )
+    app.router.add_delete(
+        "/wallet/apple/v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}",
+        apple_wallet_unregister,
+    )
+    app.router.add_get(
+        "/wallet/apple/v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}",
+        apple_wallet_device_serials,
+    )
+    app.router.add_get(
+        "/wallet/apple/v1/passes/{passTypeIdentifier}/{serialNumber}",
+        apple_wallet_get_pass,
+    )
+    app.router.add_post("/wallet/apple/v1/log", apple_wallet_log)
     app.router.add_post("/webhook/poster", poster_webhook)
     app.router.add_static("/static/", WEBAPP_DIR, show_index=False)
     return app

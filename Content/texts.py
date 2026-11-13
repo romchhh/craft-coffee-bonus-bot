@@ -1,9 +1,15 @@
+import html
+
 from database_functions.settings_db import (
     get_birthday_bonus_uah,
     get_cashback_percent,
     get_referral_bonus_uah,
     get_welcome_bonus_uah,
 )
+
+
+def _esc(name: str | None) -> str:
+    return html.escape((name or "").strip())
 
 
 def get_need_card_first() -> str:
@@ -15,7 +21,8 @@ def get_need_card_first() -> str:
 
 
 def get_registration_welcome(name: str | None = None) -> str:
-    hello = f", {name}" if name else ""
+    safe = _esc(name)
+    hello = f", {safe}" if safe else ""
     return (
         f"☕ <b>Вітаємо в Крафт Кава{hello}!</b>\n\n"
         "Ми — кав’ярня <b>Крафт Кава</b>. "
@@ -35,7 +42,8 @@ def get_ask_name() -> str:
 def get_ask_phone() -> str:
     return (
         "Поділися номером телефону — він потрібен для картки в касі.\n"
-        "Натисни кнопку нижче 👇"
+        "Натисни кнопку <b>«Поділитися номером»</b> нижче "
+        "(ручне введення не приймається) 👇"
     )
 
 
@@ -49,7 +57,7 @@ def get_ask_birthday() -> str:
 
 def get_registration_done(name: str, bonus: float, card_number: str) -> str:
     lines = [
-        f"🎉 <b>{name}, твоя картка Крафт Кава готова!</b>",
+        f"🎉 <b>{_esc(name)}, твоя картка Крафт Кава готова!</b>",
         "",
     ]
     if bonus and bonus > 0:
@@ -71,7 +79,7 @@ def get_registration_done(name: str, bonus: float, card_number: str) -> str:
 
 
 def get_referral_bonus_notification(friend_name: str, amount: float) -> str:
-    name = (friend_name or "Друг").strip() or "Друг"
+    name = _esc(friend_name) or "Друг"
     return (
         "🎉 <b>Крафтики за друга!</b>\n\n"
         f"<b>{name}</b> зробив покупку за твоїм запрошенням.\n"
@@ -82,7 +90,7 @@ def get_referral_bonus_notification(friend_name: str, amount: float) -> str:
 
 
 def get_already_registered(name: str | None = None) -> str:
-    who = name or "друже"
+    who = _esc(name) or "друже"
     return (
         f"☕ Знову раді тебе бачити, <b>{who}</b>!\n\n"
         "Твоя картка Крафт Кава завжди під рукою в мінізастосунку."
@@ -105,14 +113,17 @@ def get_faq_text() -> str:
     referral = get_referral_bonus_uah()
     return (
         "<b>Як працюють Крафтики на балансі?</b>\n\n"
-        f"• За реєстрацію — <b>{welcome:g}</b> одразу\n"
-        f"• За дату народження в мініапі — <b>+{birthday:g}</b>\n"
+        f"• За реєстрацію — <b>{welcome:g}</b> один раз на номер\n"
+        f"• За дату народження в мініапі — <b>+{birthday:g}</b> "
+        "(після 5 днів з оформлення картки)\n"
         f"• За друга: поділись посиланням → друг реєструється й отримує "
         f"<b>{welcome:g}</b> вітальних → друг робить покупку від 50 грн → "
         f"тобі <b>+{referral:g}</b> наступного дня о 00:00\n"
         "• Кешбек з покупок — <b>прогресивний</b> (старт 1%, далі зростає за Зарядом у мініапі)\n"
+        "• До 4 Зарядів на день (чек від 50 грн)\n"
         "• 1 Крафтик = 1 грн знижки\n"
         "• Покажи штрихкод на касі, щоб нарахувати або списати Крафтики\n"
+        "• Крафтики згорають через 90 днів без нових нарахувань\n"
         "• Правила програми й політика конфіденційності — у меню «ℹ️ Інфо»"
     )
 

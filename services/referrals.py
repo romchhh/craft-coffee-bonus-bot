@@ -20,6 +20,7 @@ from database_functions.client_db import (
     get_user,
     mark_referral_bonus_paid,
     set_referred_by_sticky,
+    touch_bonus_accrual,
 )
 from database_functions.settings_db import get_referral_bonus_uah
 from services import poster
@@ -239,6 +240,13 @@ def grant_pending_referral(ref: dict) -> dict[str, Any]:
         try:
             poster.change_client_bonus(int(referrer["poster_client_id"]), amount)
             invalidate_client(int(referrer["poster_client_id"]))
+            touch_bonus_accrual(int(referrer["user_id"]))
+            try:
+                from services.wallet_sync import sync_wallets_for_user
+
+                sync_wallets_for_user(int(referrer["user_id"]))
+            except Exception:
+                pass
         except Exception as exc:
             log.warning("referral grant failed friend=%s: %s", friend_id, exc)
             return {"status": "error", "reason": str(exc)}
@@ -392,6 +400,43 @@ def expire_stale_bound() -> int:
     return n
 
 
+def expire_paid_referral_rewards() -> dict[str, Any]:
+    """Claw back referral rewards after REFERRAL_REWARD_VALID_DAYS (expires_at)."""
+    now_str = now_kyiv().strftime("%Y-%m-%d %H:%M:%S")
+    report: dict[str, Any] = {"checked": 0, "expired": [], "errors": []}
+    for ref in rdb.list_paid_expired(now_str):
+        report["checked"] += 1
+        friend_id = int(ref["friend_user_id"])
+        amount = float(ref.get("amount_uah") or 0)
+        clawed = 0.0
+        referrer = get_user(ref["referrer_user_id"])
+        if amount > 0 and referrer and referrer.get("poster_client_id"):
+            try:
+                bal = poster.get_client_bonus_uah(int(referrer["poster_client_id"]))
+                claw = min(amount, max(0.0, bal))
+                if claw > 0:
+                    poster.change_client_bonus(int(referrer["poster_client_id"]), -claw)
+                    invalidate_client(int(referrer["poster_client_id"]))
+                    clawed = claw
+            except Exception as exc:
+                log.warning("referral reward expire clawback friend=%s: %s", friend_id, exc)
+                report["errors"].append({"friend_user_id": friend_id, "error": str(exc)})
+                continue
+        rdb.update_referral(
+            friend_id,
+            status=rdb.STATUS_EXPIRED,
+            reversed_at=kyiv_now_str(),
+        )
+        report["expired"].append(
+            {
+                "friend_user_id": friend_id,
+                "referrer_user_id": int(ref["referrer_user_id"]),
+                "clawed_uah": clawed,
+            }
+        )
+    return report
+
+
 def referral_ui_payload(user_id: int) -> dict[str, Any]:
     user = get_user(user_id) or {}
     can_invite = bool(user.get("registered"))
@@ -414,7 +459,9 @@ def referral_ui_payload(user_id: int) -> dict[str, Any]:
             f"1) Поділись посиланням. "
             f"2) Друг реєструється за ним. "
             f"3) Друг робить покупку від {min_cash:g} грн (протягом {window} днів). "
-            f"4) Тобі +{amount:g} — на баланс наступного дня о 00:00 (Київ)."
+            f"4) Тобі +{amount:g} — на баланс наступного дня о 00:00 (Київ). "
+            f"Винагорода дійсна {int(terms['reward_valid_days'])} днів."
         ),
         "referral_window_days": window,
+        "referral_reward_valid_days": int(terms["reward_valid_days"]),
     }
