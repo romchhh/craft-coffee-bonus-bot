@@ -1087,10 +1087,7 @@ async def apple_wallet_device_serials(request: web.Request) -> web.Response:
             tags.append(row["updated_tag"])
     if tags:
         last_tag = max(tags)
-    return web.json_response(
-        {"lastUpdated": last_tag, "serialNumbers": serials},
-        headers={"Content-Type": "application/json"},
-    )
+    return web.json_response({"lastUpdated": last_tag, "serialNumbers": serials})
 
 
 async def apple_wallet_get_pass(request: web.Request) -> web.Response:
