@@ -110,12 +110,6 @@ def apply_idle_penalties(telegram_user_id: int) -> None:
                     bal = poster.get_client_bonus_uah(cid)
                     if bal > 0:
                         poster.change_client_bonus(cid, -bal)
-                        try:
-                            from services.wallet_sync import sync_wallets_for_user
-
-                            sync_wallets_for_user(telegram_user_id, bonus=0.0)
-                        except Exception:
-                            pass
                 except Exception as exc:
                     log.warning("bonus burn failed user=%s: %s", telegram_user_id, exc)
             updates["bonus_burned_at"] = kyiv_now_str()
@@ -253,6 +247,12 @@ async def process_daily_bonus_expiry(bot=None) -> dict:
             after_row = get_loyalty_row(uid) or {}
             if not before and after_row.get("bonus_burned_at"):
                 report["burned"] += 1
+                try:
+                    from services.wallet_sync import sync_wallets_for_user
+
+                    sync_wallets_for_user(uid, bonus=0.0)
+                except Exception:
+                    pass
                 if bot is not None:
                     try:
                         await bot.send_message(

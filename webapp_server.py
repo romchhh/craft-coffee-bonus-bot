@@ -350,7 +350,7 @@ async def api_me(request: web.Request) -> web.Response:
         photo_url = f"/api/avatar?t={_wallet_token(int(tg_user['id']), exp)}"
 
     try:
-        # Deferred one-time birthday grant (card must be ≥5 days old)
+        # One-time bonus for filled birthday (immediate); annual gift only on birthday day
         if db_user.get("birthday") and not db_user.get("birthday_bonus_given"):
             added = grant_birthday_bonus(
                 int(tg_user["id"]),
@@ -941,18 +941,26 @@ async def api_wallet_google_link(request: web.Request) -> web.Response:
     return web.json_response({"url": url})
 
 
-def _build_user_pkpass(db_user: dict) -> bytes:
+def _build_user_pkpass(db_user: dict, *, prefer_cached_bonus: bool = False) -> bytes:
     from database_functions import wallet_passes_db as wdb
 
     user_id = int(db_user["user_id"])
     serial = wdb.serial_for_user(db_user)
     pass_row = wdb.ensure_pass_record(user_id, serial)
-    bonus = 0.0
-    if db_user.get("poster_client_id"):
+    bonus = None
+    if prefer_cached_bonus and pass_row.get("last_bonus") is not None:
+        bonus = float(pass_row["last_bonus"])
+    if bonus is None and db_user.get("poster_client_id"):
         try:
-            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
+            bonus = float(poster.get_client_bonus_uah(db_user["poster_client_id"]) or 0)
+            wdb.set_pass_bonus(serial, bonus)
         except Exception:
-            pass
+            if pass_row.get("last_bonus") is not None:
+                bonus = float(pass_row["last_bonus"])
+            else:
+                bonus = 0.0
+    if bonus is None:
+        bonus = 0.0
     return apple_wallet.create_pkpass(
         serial=serial,
         name=db_user.get("display_name") or db_user.get("user_first_name") or "Гість",
@@ -1069,17 +1077,21 @@ async def apple_wallet_device_serials(request: web.Request) -> web.Response:
     device_id = request.match_info["deviceLibraryIdentifier"]
     pass_type = request.match_info["passTypeIdentifier"]
     if APPLE_PASS_TYPE_ID and pass_type != APPLE_PASS_TYPE_ID:
+        log.warning("apple wallet serials: bad pass type %s", pass_type)
         return web.Response(status=401)
     since = request.rel_url.query.get("passesUpdatedSince")
     serials = wdb.list_serials_for_device(
         device_id, pass_type, passes_updated_since=since or None
     )
     if not serials:
+        log.info(
+            "apple wallet serials: device=%s since=%s → 204",
+            device_id[:12],
+            since,
+        )
         return web.Response(status=204)
-    from utils.kyiv_time import kyiv_now_str
 
-    last_tag = kyiv_now_str().replace(" ", "T")
-    # Prefer max updated_tag among matching passes
+    last_tag = ""
     tags = []
     for s in serials:
         row = wdb.get_pass_by_serial(s)
@@ -1087,6 +1099,17 @@ async def apple_wallet_device_serials(request: web.Request) -> web.Response:
             tags.append(row["updated_tag"])
     if tags:
         last_tag = max(tags)
+    else:
+        from utils.kyiv_time import kyiv_now_str
+
+        last_tag = kyiv_now_str().replace(" ", "T")
+    log.info(
+        "apple wallet serials: device=%s since=%s → %s tag=%s",
+        device_id[:12],
+        since,
+        serials,
+        last_tag,
+    )
     return web.json_response({"lastUpdated": last_tag, "serialNumbers": serials})
 
 
@@ -1101,27 +1124,40 @@ async def apple_wallet_get_pass(request: web.Request) -> web.Response:
         return web.Response(status=401)
     pass_row = _apple_pass_auth(request, serial)
     if not pass_row:
+        log.warning("apple wallet get pass: unauthorized serial=%s", serial)
         return web.Response(status=401)
 
-    # If-Modified-Since: Apple may send the previous update tag / date
-    ims = request.headers.get("If-Modified-Since")
-    if ims and pass_row.get("updated_tag") and ims.strip() == str(pass_row["updated_tag"]):
+    # If-Modified-Since: Apple echoes our Last-Modified / updated_tag
+    ims = (request.headers.get("If-Modified-Since") or "").strip()
+    tag = str(pass_row.get("updated_tag") or "")
+    if ims and tag and ims == tag:
+        log.info("apple wallet get pass: serial=%s → 304", serial)
         return web.Response(status=304)
 
     db_user = get_user(pass_row["user_id"])
     if not db_user or not db_user.get("card_number"):
         return web.Response(status=404)
     try:
-        pkpass = await asyncio.to_thread(_build_user_pkpass, db_user)
+        # Prefer cached balance so PassKit never waits on Poster (avoids nginx 502)
+        pkpass = await asyncio.to_thread(
+            _build_user_pkpass, db_user, prefer_cached_bonus=True
+        )
     except Exception:
         log.exception("apple wallet get pass serial=%s", serial)
         return web.Response(status=500)
 
+    # Re-read tag in case sync bumped it while building
+    fresh = wdb.get_pass_by_serial(serial) or pass_row
+    log.info(
+        "apple wallet get pass: serial=%s bonus=%s → 200",
+        serial,
+        fresh.get("last_bonus"),
+    )
     return web.Response(
         body=pkpass,
         headers={
             "Content-Type": "application/vnd.apple.pkpass",
-            "Last-Modified": str(pass_row.get("updated_tag") or ""),
+            "Last-Modified": str(fresh.get("updated_tag") or tag),
             "Cache-Control": "no-store",
         },
     )
@@ -1130,7 +1166,13 @@ async def apple_wallet_get_pass(request: web.Request) -> web.Response:
 async def apple_wallet_log(request: web.Request) -> web.Response:
     try:
         body = await request.json()
-        log.info("apple wallet device log: %s", body)
+        logs = body.get("logs") if isinstance(body, dict) else None
+        if logs:
+            # Only keep recent / interesting lines to avoid log spam
+            for line in logs[-5:]:
+                log.info("apple wallet device: %s", line)
+        else:
+            log.info("apple wallet device log: %s", body)
     except Exception:
         pass
     return web.Response(status=200)

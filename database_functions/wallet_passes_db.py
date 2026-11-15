@@ -21,10 +21,14 @@ def create_wallet_passes_tables() -> None:
             user_id INTEGER NOT NULL,
             auth_token TEXT NOT NULL,
             updated_tag TEXT NOT NULL,
-            updated_at TEXT
+            updated_at TEXT,
+            last_bonus REAL
         )
         """
     )
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(apple_wallet_passes)").fetchall()}
+    if "last_bonus" not in cols:
+        cursor.execute("ALTER TABLE apple_wallet_passes ADD COLUMN last_bonus REAL")
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS apple_wallet_registrations (
@@ -123,6 +127,14 @@ def bump_pass_updated(serial: str) -> str:
         return tag
     conn.commit()
     return tag
+
+
+def set_pass_bonus(serial: str, bonus: float) -> None:
+    cursor.execute(
+        "UPDATE apple_wallet_passes SET last_bonus = ? WHERE serial_number = ?",
+        (float(bonus), serial),
+    )
+    conn.commit()
 
 
 def register_device(

@@ -21,30 +21,17 @@ from utils.kyiv_time import now_kyiv
 
 log = logging.getLogger(__name__)
 
-# Prevent registering with today's birthday and immediately claiming + welcome.
-BIRTHDAY_MIN_CARD_AGE_DAYS = 5
-
-
-def _card_old_enough(user: dict) -> bool:
-    age = card_age_days(user)
-    if age is None:
-        return False
-    return age >= BIRTHDAY_MIN_CARD_AGE_DAYS
+# Annual gift on birthday: card must exist ≥5 days before that birthday.
+ANNUAL_BIRTHDAY_MIN_CARD_AGE_DAYS = 5
 
 
 def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
+    """One-time reward for filling birthday — paid immediately (no card-age wait)."""
     user = get_user(user_id)
     if not user or user.get("birthday_bonus_given"):
         return 0.0
     if int(user.get("bonuses_blocked") or 0):
         log.info("birthday bonus skipped — blocked user=%s", user_id)
-        return 0.0
-    if not _card_old_enough(user):
-        log.info(
-            "birthday bonus deferred — card age < %sd user=%s",
-            BIRTHDAY_MIN_CARD_AGE_DAYS,
-            user_id,
-        )
         return 0.0
     amount = get_birthday_bonus_uah()
     if amount <= 0 or not poster_client_id:
@@ -68,12 +55,14 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
 
 
 def maybe_grant_annual_birthday(user_id: int) -> float:
+    """
+    Greeting bonus on the actual birthday day.
+    Only if the loyalty card was registered at least 5 days before this birthday.
+    """
     user = get_user(user_id)
     if not user or not user.get("registered"):
         return 0.0
     if int(user.get("bonuses_blocked") or 0):
-        return 0.0
-    if not _card_old_enough(user):
         return 0.0
     bday = user.get("birthday")
     if not bday or bday in ("0000-00-00",):
@@ -93,6 +82,18 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
     if now.month != month or now.day != day:
         return 0.0
     if int(user.get("annual_birthday_year") or 0) == now.year:
+        return 0.0
+
+    age = card_age_days(user)
+    if age is None or age < ANNUAL_BIRTHDAY_MIN_CARD_AGE_DAYS:
+        log.info(
+            "annual birthday skipped — card registered < %sd before birthday user=%s age=%s",
+            ANNUAL_BIRTHDAY_MIN_CARD_AGE_DAYS,
+            user_id,
+            age,
+        )
+        # Mark year so we don't retry spam; they weren't eligible this year.
+        mark_annual_birthday_year(user_id, now.year)
         return 0.0
 
     amount = get_annual_birthday_bonus_uah()
