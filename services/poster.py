@@ -43,13 +43,20 @@ def _token() -> str:
     return POSTER_TOKEN
 
 
-def call(method: str, data: dict | None = None, params: dict | None = None) -> Any:
+def call(
+    method: str,
+    data: dict | None = None,
+    params: dict | None = None,
+    *,
+    timeout: float | None = None,
+) -> Any:
     url = f"{API}/{method}"
     query = {"token": _token(), **(params or {})}
+    t = TIMEOUT if timeout is None else float(timeout)
     if data is None:
-        resp = requests.get(url, params=query, timeout=TIMEOUT)
+        resp = requests.get(url, params=query, timeout=t)
     else:
-        resp = requests.post(url, params=query, data=data, timeout=TIMEOUT)
+        resp = requests.post(url, params=query, data=data, timeout=t)
     resp.raise_for_status()
     if not (resp.text or "").strip():
         raise PosterError(f"порожня відповідь {method}")
@@ -248,9 +255,13 @@ def get_products(spot_id: int | None = None) -> list[dict]:
     return visible
 
 
-def get_client(client_id: int | str) -> dict | None:
+def get_client(client_id: int | str, *, timeout: float | None = None) -> dict | None:
     try:
-        result = call("clients.getClient", params={"client_id": client_id})
+        result = call(
+            "clients.getClient",
+            params={"client_id": client_id},
+            timeout=timeout,
+        )
     except PosterError as exc:
         # Unknown / deleted client on this account
         payload = exc.payload if isinstance(exc.payload, dict) else {}
@@ -265,9 +276,9 @@ def get_client(client_id: int | str) -> dict | None:
     return None
 
 
-def get_client_bonus_uah(client_id: int | str) -> float:
+def get_client_bonus_uah(client_id: int | str, *, timeout: float | None = None) -> float:
     """Live client bonus balance from Poster (UAH)."""
-    client = get_client(client_id) or {}
+    client = get_client(client_id, timeout=timeout) or {}
     return from_minor(client.get("bonus"))
 
 

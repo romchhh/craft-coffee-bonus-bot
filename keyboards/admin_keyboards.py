@@ -61,8 +61,9 @@ def get_client_card_keyboard(
         [
             [
                 InlineKeyboardButton(text="📜 Історія", callback_data=f"client_hist:{user_id}"),
-                InlineKeyboardButton(text="🔄 Оновити", callback_data=f"client_view:{user_id}"),
+                InlineKeyboardButton(text="♻️ Баланс Poster", callback_data=f"client_bal:{user_id}"),
             ],
+            [InlineKeyboardButton(text="🔄 Оновити картку", callback_data=f"client_view:{user_id}")],
             [InlineKeyboardButton(text="👥 Реферали", callback_data=f"client_refs:{user_id}")],
             [
                 InlineKeyboardButton(text="🎁 Подарувати", callback_data=f"client_gift:{user_id}"),
@@ -286,6 +287,7 @@ def get_referral_review_keyboard(items: list[dict]) -> InlineKeyboardMarkup:
 def get_export_database_keyboard() -> InlineKeyboardMarkup:
     inline_kb_list = [
         [InlineKeyboardButton(text="🔍 Вигрузити Excel", callback_data="export_database")],
+        [InlineKeyboardButton(text="♻️ Оновити баланси з Poster", callback_data="stats_refresh_poster")],
         [InlineKeyboardButton(text="⚠️ Аномалії лояльності", callback_data="clients_anomalies")],
         [InlineKeyboardButton(text="💾 Бекап БД зараз", callback_data="backup_db_now")],
     ]

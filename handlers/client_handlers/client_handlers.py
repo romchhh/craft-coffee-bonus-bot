@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
+
 from aiogram import Router, types, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -281,7 +283,8 @@ async def _finish_registration(
     await message.answer("⏳ Створюємо картку в Крафт Кава…")
 
     try:
-        client_id, card_number, bonus_given = await _create_loyalty_card(
+        client_id, card_number, bonus_given = await asyncio.to_thread(
+            _create_loyalty_card,
             telegram_id=message.from_user.id,
             display_name=data["display_name"],
             phone=data["phone"],
@@ -408,7 +411,7 @@ async def _send_registration_success(
     )
 
 
-async def _create_loyalty_card(
+def _create_loyalty_card(
     *,
     telegram_id: int,
     display_name: str,
@@ -417,6 +420,7 @@ async def _create_loyalty_card(
 ) -> tuple[int, str, bool]:
     """Return (poster_client_id, card_number, welcome_bonus_given).
 
+    Sync Poster I/O — always call via asyncio.to_thread.
     card_number is an 8-digit code we generate and store in Poster as the
     bonus card number (same digits shown under the barcode in Mini App).
     """
@@ -558,11 +562,25 @@ async def bonuses_info(message: types.Message):
     user = get_user(message.from_user.id)
     lines = [get_faq_text()]
     if user and user.get("poster_client_id"):
-        try:
-            balance = poster.get_client_bonus_uah(user["poster_client_id"])
+        balance = None
+        if user.get("last_known_bonus") is not None:
+            try:
+                balance = float(user["last_known_bonus"])
+            except (TypeError, ValueError):
+                balance = None
+        if balance is None:
+            try:
+                balance = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        poster.get_client_bonus_uah,
+                        user["poster_client_id"],
+                    ),
+                    timeout=6.0,
+                )
+            except Exception:
+                balance = None
+        if balance is not None:
             lines.append(f"\n💳 <b>Твій баланс зараз:</b> {balance:g}")
-        except Exception:
-            pass
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 

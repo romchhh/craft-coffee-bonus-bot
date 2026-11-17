@@ -74,6 +74,8 @@
   let historyLoading = false;
   let appMeta = null;
   let lastVisibilityReload = 0;
+  let loadAllInFlight = null;
+  let loadAllSeq = 0;
 
   async function getAppMeta() {
     if (appMeta) return appMeta;
@@ -238,11 +240,20 @@
 
   const fmtDateTime = (raw) => {
     if (!raw || raw === "—") return "—";
-    const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-    if (!m) return String(raw);
-    const base = `${m[3]}.${m[2]}.${m[1]}`;
-    if (m[4] != null) return `${base}, ${m[4]}:${m[5]}`;
-    return base;
+    const s = String(raw).trim().replace("T", " ");
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ ](\d{2}):(\d{2}))?/);
+    if (m) {
+      const base = `${m[3]}.${m[2]}.${m[1]}`;
+      if (m[4] != null) return `${base} ${m[4]}:${m[5]}`;
+      return base;
+    }
+    const dmy = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[ ](\d{2}):(\d{2}))?/);
+    if (dmy) {
+      const base = `${dmy[1]}.${dmy[2]}.${dmy[3]}`;
+      if (dmy[4] != null) return `${base} ${dmy[4]}:${dmy[5]}`;
+      return base;
+    }
+    return s;
   };
 
   const escapeHtml = (s) => String(s ?? "")
@@ -383,8 +394,8 @@
           tg.expand();
         } catch (_) {}
       }
-      // ~2.5s max — do not block first paint for 12s on slow WebViews
-      for (let i = 0; i < 50; i++) {
+      // ~1.2s max — fail fast rather than freeze on loader
+      for (let i = 0; i < 24; i++) {
         const raw = readInitDataRaw();
         if (looksLikeInitData(raw)) {
           cachedInitData = raw;
@@ -404,20 +415,50 @@
     }
   }
 
+  async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } catch (e) {
+      if (e && (e.name === "AbortError" || e.code === 20)) {
+        const err = new Error("Сервер не відповідає. Спробуй ще раз.");
+        err.code = "timeout";
+        throw err;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function apiTimeoutFor(path) {
+    if (/^\/me(\?|$)/.test(path)) return 9000;
+    if (/history\?sync=1/.test(path)) return 12000;
+    if (/^\/menu/.test(path)) return 10000;
+    return 10000;
+  }
+
   async function api(path, attempt = 0) {
-    const maxAttempts = 5;
+    const maxAttempts = 2;
     const initData = await resolveInitData(attempt > 0);
-    const res = await fetch(`/api${path}`, { headers: buildApiHeaders(initData) });
+    const res = await fetchWithTimeout(
+      `/api${path}`,
+      { headers: buildApiHeaders(initData) },
+      apiTimeoutFor(path)
+    );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const errText = data.error || `HTTP ${res.status}`;
+      // One quick auth retry only — avoid long hang loops
       if (res.status === 401 && attempt < maxAttempts - 1) {
         resetInitDataCache();
-        await sleep(180 + attempt * 220);
+        await sleep(250);
         return api(path, attempt + 1);
       }
-      if (res.status === 404 && /me/.test(path) && attempt < maxAttempts - 1) {
-        await sleep(400 + attempt * 350);
+      // Fresh registration race: one short retry for /me 404
+      if (res.status === 404 && /\/me(\?|$)/.test(path) && attempt < 1) {
+        await sleep(500);
         return api(path, attempt + 1);
       }
       const err = new Error(errText);
@@ -428,19 +469,23 @@
   }
 
   async function apiPost(path, body, attempt = 0) {
-    const maxAttempts = 5;
+    const maxAttempts = 2;
     const initData = await resolveInitData(attempt > 0);
     const headers = { ...buildApiHeaders(initData), "Content-Type": "application/json" };
-    const res = await fetch(`/api${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    const res = await fetchWithTimeout(
+      `/api${path}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      },
+      12000
+    );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 401 && attempt < maxAttempts - 1) {
         resetInitDataCache();
-        await sleep(180 + attempt * 220);
+        await sleep(250);
         return apiPost(path, body, attempt + 1);
       }
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -1600,15 +1645,29 @@
 
   function isRetriableLoadError(e) {
     const msg = String(e.message || "");
+    if (e.code === "timeout") return true;
     if (e.code === "session" || /сесію Telegram/i.test(msg)) return true;
-    if (/Не зареєстровано/i.test(msg)) return true;
     if (/перевірити сесію|401/i.test(msg)) return true;
-    if (e.httpStatus === 401 || e.httpStatus === 404) return true;
+    if (e.httpStatus === 401) return true;
+    // Fresh signup race only — do not loop forever on "not registered"
+    if (e.httpStatus === 404 && /Не зареєстровано/i.test(msg)) return true;
     return false;
   }
 
   async function loadAll(attempt = 0) {
-    const maxAttempts = 6;
+    const maxAttempts = 3;
+    if (attempt === 0) {
+      if (loadAllInFlight) return loadAllInFlight;
+      loadAllSeq += 1;
+      loadAllInFlight = loadAllWork(0, loadAllSeq, maxAttempts).finally(() => {
+        loadAllInFlight = null;
+      });
+      return loadAllInFlight;
+    }
+    return loadAllWork(attempt, loadAllSeq, maxAttempts);
+  }
+
+  async function loadAllWork(attempt, seq, maxAttempts) {
     if (attempt === 0) {
       appReady = false;
       setTabsVisible(false);
@@ -1620,12 +1679,14 @@
     }
     try {
       const initData = await resolveInitData(attempt > 0);
+      if (seq !== loadAllSeq) return;
       if (tg && !initData) {
         const err = new Error("Не вдалося отримати сесію Telegram.");
         err.code = "session";
         throw err;
       }
       const me = await api("/me");
+      if (seq !== loadAllSeq) return;
       state.me = me;
       state.spots = [];
       state.history = { purchases: [], bonuses: [] };
@@ -1641,10 +1702,11 @@
       loadSecondaryData();
       loadMenu();
     } catch (e) {
+      if (seq !== loadAllSeq) return;
       if (isRetriableLoadError(e) && attempt < maxAttempts - 1) {
         resetInitDataCache();
-        await sleep(300 + attempt * 280);
-        return loadAll(attempt + 1);
+        await sleep(280 + attempt * 220);
+        return loadAllWork(attempt + 1, seq, maxAttempts);
       }
       appReady = true;
       tabs.removeAttribute("aria-busy");
@@ -1654,7 +1716,7 @@
       if (e.code === "session" || /сесію Telegram/i.test(msg)) kind = "session";
       else if (/Не зареєстровано/i.test(msg)) kind = "register";
       else if (/перевірити сесію|401/i.test(msg)) kind = "auth";
-      await showLoadError({ kind, message: msg });
+      await showLoadError({ kind, message: msg || "Не вдалося відкрити картку" });
     }
   }
 

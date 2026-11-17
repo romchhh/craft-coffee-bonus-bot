@@ -144,6 +144,25 @@ def enrich_with_users(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _esc(s: object) -> str:
+    return (
+        str(s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def user_name_link(user_id: object, name: object) -> str:
+    """Clickable Telegram profile link embedded in the display name."""
+    label = _esc(str(name or user_id or "—").strip() or "—")
+    try:
+        uid = int(user_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return f"<b>{label}</b>"
+    return f'<a href="tg://user?id={uid}"><b>{label}</b></a>'
+
+
 def build_anomalies_report() -> str:
     lines = ["⚠️ <b>Аномалії лояльності</b>\n"]
 
@@ -155,7 +174,7 @@ def build_anomalies_report() -> str:
         for r in freq:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}<b>{_esc(r['name'])}</b> · id <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'])} · id <code>{r['user_id']}</code> · "
                 f"{r['cnt']}× · +{r['total_bonus']:g} · чеки {r['total_payed']:g} грн"
             )
 
@@ -167,7 +186,7 @@ def build_anomalies_report() -> str:
         for r in week:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}<b>{_esc(r['name'])}</b> · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
                 f"+{r['total_bonus']:g} ({r['cnt']} чеків)"
             )
 
@@ -179,7 +198,7 @@ def build_anomalies_report() -> str:
         for r in micro:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}<b>{_esc(r['name'])}</b> · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
                 f"{r['cnt']}× · сума {r['total_payed']:g}"
             )
 
@@ -191,7 +210,7 @@ def build_anomalies_report() -> str:
         for r in refs_day:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}<b>{_esc(r['name'])}</b> · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
                 f"друзів сьогодні {r['cnt']}"
             )
 
@@ -203,24 +222,15 @@ def build_anomalies_report() -> str:
         for r in refs:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}<b>{_esc(r['name'])}</b> · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
                 f"друзів {r['cnt']} · paid {r['paid_cnt']} · review {r['review_cnt']}"
             )
 
     lines.append(
-        "\n<i>Натисни клієнта в «👤 Клієнти» за Telegram ID, щоб переглянути картку / "
-        "заблокувати Крафтики.</i>"
+        "\n<i>Натисни імʼя — профіль у Telegram. "
+        "Або «👤 Клієнти» за ID — картка / блок Крафтиків.</i>"
     )
     text = "\n".join(lines)
     if len(text) > 3900:
         text = text[:3900] + "\n…"
     return text
-
-
-def _esc(s: object) -> str:
-    return (
-        str(s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )

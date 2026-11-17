@@ -90,16 +90,60 @@ def get_client_admin_details(user_id: int) -> dict[str, Any]:
 
 
 def enrich_clients_list_metrics(users: list[dict]) -> list[dict]:
-    """Attach spent / bonus / age for search & short lists (batch, local DB)."""
+    """Attach spent / bonus / age for search & short lists — one batched SQL."""
     if not users:
         return []
     today = date.today()
+    ids = [int(u["user_id"]) for u in users]
+    placeholders = ",".join("?" * len(ids))
+    rows = _conn().execute(
+        f"""
+        SELECT
+            telegram_user_id AS user_id,
+            COALESCE(SUM(payed_sum_uah), 0) AS spent_uah,
+            COALESCE(SUM(bonus_uah), 0) AS bonus_earned_uah,
+            COALESCE(SUM(bonus_spent_uah), 0) AS bonus_spent_uah,
+            COUNT(*) AS purchases_count,
+            MAX(COALESCE(NULLIF(date_close, ''), processed_at)) AS last_purchase_at
+        FROM processed_transactions
+        WHERE telegram_user_id IN ({placeholders})
+        GROUP BY telegram_user_id
+        """,
+        ids,
+    ).fetchall()
+    by_uid = {int(r["user_id"]): dict(r) for r in rows}
+
+    # Top spot per user (single scan, then pick max count in Python)
+    spot_rows = _conn().execute(
+        f"""
+        SELECT telegram_user_id AS user_id, spot_name, COUNT(*) AS cnt
+        FROM processed_transactions
+        WHERE telegram_user_id IN ({placeholders})
+          AND IFNULL(spot_name, '') != ''
+        GROUP BY telegram_user_id, spot_name
+        """,
+        ids,
+    ).fetchall()
+    top_spot: dict[int, str] = {}
+    best_cnt: dict[int, int] = {}
+    for r in spot_rows:
+        uid = int(r["user_id"])
+        cnt = int(r["cnt"] or 0)
+        if cnt > best_cnt.get(uid, 0):
+            best_cnt[uid] = cnt
+            top_spot[uid] = (r["spot_name"] or "").strip()
+
     out: list[dict] = []
     for u in users:
         d = dict(u)
         uid = int(d["user_id"])
-        stats = get_client_admin_details(uid)
-        d.update(stats)
+        stats = by_uid.get(uid) or {}
+        d["spent_uah"] = float(stats.get("spent_uah") or 0)
+        d["bonus_earned_uah"] = float(stats.get("bonus_earned_uah") or 0)
+        d["bonus_spent_uah"] = float(stats.get("bonus_spent_uah") or 0)
+        d["purchases_count"] = int(stats.get("purchases_count") or 0)
+        d["last_purchase_at"] = stats.get("last_purchase_at")
+        d["top_spot"] = top_spot.get(uid, "")
         if d.get("age") is None:
             d["age"] = _age_years(d.get("birthday"), today)
         out.append(d)
@@ -325,6 +369,7 @@ def iter_clients_stats_for_export() -> list[dict[str, Any]]:
             COALESCE(u.welcome_bonus_given, 0) AS welcome_bonus_given,
             COALESCE(u.birthday_bonus_given, 0) AS birthday_bonus_given,
             u.last_known_bonus,
+            u.last_known_bonus_at,
             u.referred_by_user_id,
             COALESCE((
                 SELECT SUM(pt.payed_sum_uah) FROM processed_transactions pt

@@ -2,15 +2,22 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from database_functions.db import get_connection
 from database_functions.settings_db import get_welcome_bonus_uah
-from utils.kyiv_time import kyiv_calendar_start
+from utils.kyiv_time import kyiv_calendar_start, kyiv_now_str
 
 log = logging.getLogger(__name__)
 
 conn = get_connection()
 cursor = conn.cursor()
+
+# Short in-process caches so admin «Статистика» is instant on repeat opens.
+_SUMMARY_TTL_SEC = 45.0
+_summary_cache: tuple[float, dict] | None = None
+_poster_bal_cache: tuple[float, dict] | None = None
+_POSTER_BAL_TTL_SEC = 30 * 60.0  # live Poster sweep at most every 30 min
 
 
 def _bot_tx_filter() -> str:
@@ -22,7 +29,12 @@ def _tx_when_expr() -> str:
     return "COALESCE(NULLIF(date_close, ''), processed_at)"
 
 
-def get_loyalty_statistics_summary() -> dict:
+def get_loyalty_statistics_summary(*, force: bool = False) -> dict:
+    global _summary_cache
+    now = time.monotonic()
+    if not force and _summary_cache and now - _summary_cache[0] < _SUMMARY_TTL_SEC:
+        return dict(_summary_cache[1])
+
     registered = cursor.execute(
         "SELECT COUNT(*) FROM users WHERE registered = 1 AND poster_client_id IS NOT NULL"
     ).fetchone()[0]
@@ -101,7 +113,7 @@ def get_loyalty_statistics_summary() -> dict:
         (kyiv_calendar_start(0),),
     ).fetchone()[0]
 
-    return {
+    out = {
         "registered_clients": registered,
         "welcome_count": welcome_count,
         "welcome_total_est_uah": welcome_total_est,
@@ -125,32 +137,87 @@ def get_loyalty_statistics_summary() -> dict:
         "new_registered_today": int(new_registered_today or 0),
         "period_note": "календарний день з 00:00 за Києвом",
     }
+    _summary_cache = (now, dict(out))
+    return out
 
 
-def fetch_poster_bonus_balances() -> dict:
+def fetch_local_bonus_balances() -> dict:
+    """Instant sum from last_known_bonus (updated on Mini App / ops) — no Poster."""
+    row = cursor.execute(
+        """
+        SELECT
+            COALESCE(SUM(last_known_bonus), 0),
+            SUM(CASE WHEN COALESCE(last_known_bonus, 0) > 0 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN last_known_bonus IS NULL THEN 1 ELSE 0 END),
+            COUNT(*)
+        FROM users
+        WHERE registered = 1 AND poster_client_id IS NOT NULL
+        """
+    ).fetchone()
+    return {
+        "outstanding_bonus_uah": float(row[0] or 0),
+        "clients_with_bonus_balance": int(row[1] or 0),
+        "clients_unknown_balance": int(row[2] or 0),
+        "clients_total": int(row[3] or 0),
+        "source": "local",
+        "poster_errors": 0,
+        "as_of": kyiv_now_str("%d.%m.%Y %H:%M"),
+    }
+
+
+def fetch_poster_bonus_balances(*, force: bool = False) -> dict:
     """
-    Sum of bonus balances on Poster cards (registered bot clients only).
-    On API error returns zeroes and error.
+    Slow: live Poster sweep for every registered client.
+    Cached 30 min. Prefer fetch_local_bonus_balances() for admin stats.
+    Also writes last_known_bonus so the next fast local sum stays accurate.
     """
+    global _poster_bal_cache, _summary_cache
+    now = time.monotonic()
+    if not force and _poster_bal_cache and now - _poster_bal_cache[0] < _POSTER_BAL_TTL_SEC:
+        return dict(_poster_bal_cache[1])
+
     from services import poster
 
     rows = cursor.execute(
-        "SELECT poster_client_id FROM users WHERE registered = 1 AND poster_client_id IS NOT NULL"
+        """
+        SELECT user_id, poster_client_id FROM users
+        WHERE registered = 1 AND poster_client_id IS NOT NULL
+        """
     ).fetchall()
     total = 0.0
     with_balance = 0
     errors = 0
-    for (cid,) in rows:
+    stamp = kyiv_now_str()
+    updates: list[tuple[float, str, str, int]] = []
+    for uid, cid in rows:
         try:
-            bal = poster.get_client_bonus_uah(cid)
+            bal = float(poster.get_client_bonus_uah(cid, timeout=4.0))
             total += bal
             if bal > 0:
                 with_balance += 1
+            updates.append((round(bal, 2), stamp, stamp, int(uid)))
         except Exception as exc:
             errors += 1
             log.debug("bonus balance client %s: %s", cid, exc)
-    return {
+    if updates:
+        cursor.executemany(
+            """
+            UPDATE users
+            SET last_known_bonus = ?, last_known_bonus_at = ?, last_activity = ?
+            WHERE user_id = ?
+            """,
+            updates,
+        )
+        conn.commit()
+        _summary_cache = None  # local sum will change
+    out = {
         "outstanding_bonus_uah": total,
         "clients_with_bonus_balance": with_balance,
+        "clients_unknown_balance": errors,
+        "clients_total": len(rows),
+        "source": "poster",
         "poster_errors": errors,
+        "as_of": kyiv_now_str("%d.%m.%Y %H:%M"),
     }
+    _poster_bal_cache = (now, dict(out))
+    return out

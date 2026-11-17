@@ -184,53 +184,53 @@ async def api_meta(_request: web.Request) -> web.Response:
     )
 
 
-async def _fetch_telegram_avatar(user_id: int) -> Path | None:
+def _cached_avatar_path(user_id: int) -> Path | None:
+    cached = list(AVATAR_CACHE.glob(f"{user_id}.*"))
+    return cached[0] if cached else None
+
+
+async def _fetch_telegram_avatar(user_id: int, *, force: bool = False) -> Path | None:
     """Download avatar from Telegram Bot API into local cache."""
     if not BOT_TOKEN:
         return None
-    cached = list(AVATAR_CACHE.glob(f"{user_id}.*"))
-    if cached:
-        # refresh once per day
-        age = datetime.now().timestamp() - cached[0].stat().st_mtime
+    cached = _cached_avatar_path(user_id)
+    if cached and not force:
+        age = datetime.now().timestamp() - cached.stat().st_mtime
         if age < 86400:
-            return cached[0]
+            return cached
 
     try:
-        async with aiohttp_client.ClientSession() as session:
+        timeout = aiohttp_client.ClientTimeout(total=4, connect=2)
+        async with aiohttp_client.ClientSession(timeout=timeout) as session:
             async with session.get(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getUserProfilePhotos",
                 params={"user_id": user_id, "limit": 1},
-                timeout=aiohttp_client.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()
             photos = (((data or {}).get("result") or {}).get("photos") or [])
             if not photos:
-                return None
-            # largest size in the first set
+                return cached
             best = max(photos[0], key=lambda p: p.get("file_size") or 0)
             file_id = best["file_id"]
 
             async with session.get(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
                 params={"file_id": file_id},
-                timeout=aiohttp_client.ClientTimeout(total=15),
             ) as resp:
                 file_info = await resp.json()
             file_path = ((file_info or {}).get("result") or {}).get("file_path")
             if not file_path:
-                return None
+                return cached
 
             async with session.get(
                 f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
-                timeout=aiohttp_client.ClientTimeout(total=20),
             ) as resp:
                 if resp.status != 200:
-                    return None
+                    return cached
                 body = await resp.read()
 
         ext = Path(file_path).suffix or ".jpg"
         out = AVATAR_CACHE / f"{user_id}{ext}"
-        # remove old variants
         for old in AVATAR_CACHE.glob(f"{user_id}.*"):
             if old != out:
                 old.unlink(missing_ok=True)
@@ -238,7 +238,23 @@ async def _fetch_telegram_avatar(user_id: int) -> Path | None:
         return out
     except Exception as exc:
         log.warning("avatar fetch failed for %s: %s", user_id, exc)
-        return None
+        return cached
+
+
+def _run_birthday_side_effects(user_id: int) -> None:
+    """Poster birthday grants — never call on the aiohttp event loop."""
+    try:
+        db_user = get_user(user_id)
+        if not db_user:
+            return
+        if db_user.get("birthday") and not db_user.get("birthday_bonus_given"):
+            grant_birthday_bonus(
+                int(user_id),
+                int(db_user["poster_client_id"]) if db_user.get("poster_client_id") else None,
+            )
+        maybe_grant_annual_birthday(int(user_id))
+    except Exception as exc:
+        log.warning("birthday side-effects user=%s: %s", user_id, exc)
 
 
 def _validate_birthday_iso(raw: str) -> str:
@@ -321,33 +337,42 @@ async def api_update_birthday(request: web.Request) -> web.Response:
 
 
 async def api_me(request: web.Request) -> web.Response:
+    """Fast Mini App bootstrap — never block the event loop on Poster/Telegram."""
     tg_user = _auth_user(request)
     db_user = get_user(tg_user["id"])
     if not db_user or not db_user.get("registered"):
         return web.json_response({"error": "Не зареєстровано"}, status=404)
 
+    tg_id = int(tg_user["id"])
     bonus = None
     bonus_stale = False
     birthday = db_user.get("birthday")
     card_number = db_user.get("card_number")
-    # Prefer cached balance so first open after registration is not blocked by Poster.
+
+    # Instant: last known balance from DB
     if db_user.get("last_known_bonus") is not None:
         try:
             bonus = float(db_user["last_known_bonus"])
             bonus_stale = True
         except (TypeError, ValueError):
             bonus = None
+
+    # Optional short Poster refresh (hard-capped; thread also uses short HTTP timeout)
     if db_user.get("poster_client_id"):
         try:
             client = await asyncio.wait_for(
-                asyncio.to_thread(get_client_cached, int(db_user["poster_client_id"])),
-                timeout=4.0,
+                asyncio.to_thread(
+                    get_client_cached,
+                    int(db_user["poster_client_id"]),
+                    timeout=3.0,
+                ),
+                timeout=3.5,
             )
             bonus = poster.from_minor(client.get("bonus"))
             bonus_stale = False
             from database_functions.client_db import set_last_known_bonus
 
-            set_last_known_bonus(int(tg_user["id"]), float(bonus))
+            set_last_known_bonus(tg_id, float(bonus))
             if client.get("birthday") and client["birthday"] not in ("0000-00-00", None, ""):
                 birthday = client["birthday"]
             poster_card = (client.get("card_number") or "").strip()
@@ -355,37 +380,46 @@ async def api_me(request: web.Request) -> web.Response:
                 card_number = poster_card
         except Exception as exc:
             log.warning("get_client failed/timeout: %s", exc)
-            if bonus is None and db_user.get("last_known_bonus") is not None:
-                try:
-                    bonus = float(db_user["last_known_bonus"])
-                except (TypeError, ValueError):
-                    bonus = None
             bonus_stale = True
-    if bonus is None and not bonus_stale:
-        bonus = 0.0
+    if bonus is None:
+        bonus = 0.0 if not bonus_stale else None
+        if bonus is None and db_user.get("last_known_bonus") is not None:
+            try:
+                bonus = float(db_user["last_known_bonus"])
+            except (TypeError, ValueError):
+                bonus = None
+            bonus_stale = True
 
+    # Avatar: serve cache instantly; refresh in background (never delay /me)
     photo_url = None
-    avatar = await _fetch_telegram_avatar(int(tg_user["id"]))
+    avatar = _cached_avatar_path(tg_id)
     if avatar:
         exp = int(datetime.now().timestamp()) + 86400
-        photo_url = f"/api/avatar?t={_wallet_token(int(tg_user['id']), exp)}"
+        photo_url = f"/api/avatar?t={_wallet_token(tg_id, exp)}"
+    else:
+        asyncio.create_task(_fetch_telegram_avatar(tg_id))
+    if avatar:
+        age = datetime.now().timestamp() - avatar.stat().st_mtime
+        if age > 86400:
+            asyncio.create_task(_fetch_telegram_avatar(tg_id, force=True))
 
-    try:
-        # One-time bonus for filled birthday (immediate); annual gift only on birthday day
-        if db_user.get("birthday") and not db_user.get("birthday_bonus_given"):
-            added = grant_birthday_bonus(
-                int(tg_user["id"]),
-                int(db_user["poster_client_id"]) if db_user.get("poster_client_id") else None,
-            )
-            if added > 0 and db_user.get("poster_client_id"):
-                bonus = poster.get_client_bonus_uah(db_user["poster_client_id"])
-        annual = maybe_grant_annual_birthday(int(tg_user["id"]))
-        if annual > 0:
-            bonus = poster.get_client_bonus_uah(db_user["poster_client_id"]) if db_user.get("poster_client_id") else bonus
-    except Exception as exc:
-        log.warning("birthday check: %s", exc)
+    # Birthday Poster grants in background — must not stall card open
+    schedule_bday = False
+    if db_user.get("birthday") and db_user.get("birthday") not in ("0000-00-00", ""):
+        if not db_user.get("birthday_bonus_given"):
+            schedule_bday = True
+        else:
+            try:
+                bd = datetime.strptime(str(db_user["birthday"])[:10], "%Y-%m-%d")
+                now = datetime.now()
+                if bd.month == now.month and bd.day == now.day:
+                    schedule_bday = True
+            except ValueError:
+                pass
+    if schedule_bday:
+        asyncio.create_task(asyncio.to_thread(_run_birthday_side_effects, tg_id))
 
-    loyalty = build_loyalty_ui(int(tg_user["id"]), float(bonus or 0))
+    loyalty = build_loyalty_ui(tg_id, float(bonus or 0))
     phone_raw = db_user.get("user_phone") or ""
     phone_digits = ""
     phone_id_suffix = ""
@@ -397,7 +431,6 @@ async def api_me(request: web.Request) -> web.Response:
         phone_digits = re.sub(r"\D", "", str(phone_raw))
         phone_id_suffix = phone_digits[-4:] if phone_digits else ""
 
-    # Under-barcode digits == Poster card_number (kept in sync).
     card_short_id = (card_number or db_user.get("card_short_id") or "").strip() or None
     if (
         card_number
@@ -425,14 +458,14 @@ async def api_me(request: web.Request) -> web.Response:
             "bonus": bonus,
             "bonus_stale": bonus_stale,
             "bonus_unavailable": bonus is None,
-            "cashback_percent": get_cashback_percent_for_user(int(tg_user["id"])),
+            "cashback_percent": get_cashback_percent_for_user(tg_id),
             "personal_cashback_percent": db_user.get("personal_cashback_percent"),
             "bonuses_blocked": bool(int(db_user.get("bonuses_blocked") or 0)),
             "photo_url": photo_url,
             "wallet": apple_wallet.status(),
             "google_wallet": google_wallet.status(),
             "loyalty": loyalty,
-            "quests": quests_payload(int(tg_user["id"])),
+            "quests": quests_payload(tg_id),
         }
     )
 

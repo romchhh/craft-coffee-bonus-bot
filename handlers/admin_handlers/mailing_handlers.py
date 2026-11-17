@@ -396,13 +396,30 @@ async def handle_publish_confirmation(callback_query: types.CallbackQuery, state
         },
         recipient_ids=list(user_ids),
     )
-    stats = await run_mailing_job(job_id, progress_chat_id=callback_query.message.chat.id)
+    progress_chat_id = callback_query.message.chat.id
     skip_note = f" · відписаних пропущено: {opted_out}" if opted_out else ""
+
+    async def _run_and_report() -> None:
+        try:
+            stats = await run_mailing_job(job_id, progress_chat_id=progress_chat_id)
+            await bot.send_message(
+                progress_chat_id,
+                f"Розсилка #{job_id} завершена.\n"
+                f"✅ Надіслано: <b>{stats['sent']}</b>\n"
+                f"❌ Помилок: <b>{stats['failed']}</b>\n"
+                f"Усього в черзі: <b>{stats['total']}</b>{skip_note}",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            await bot.send_message(
+                progress_chat_id,
+                f"Розсилка #{job_id} перервалась: {exc}",
+            )
+
+    asyncio.create_task(_run_and_report())
     await callback_query.message.answer(
-        f"Розсилка #{job_id} завершена.\n"
-        f"✅ Надіслано: <b>{stats['sent']}</b>\n"
-        f"❌ Помилок: <b>{stats['failed']}</b>\n"
-        f"Усього в черзі: <b>{stats['total']}</b>{skip_note}",
+        f"🚀 Розсилка #{job_id} пішла у фон ({len(user_ids)} отримувачів).\n"
+        "Можеш користуватись адмінкою — прогрес і підсумок прийдуть сюди.",
         parse_mode="HTML",
     )
 

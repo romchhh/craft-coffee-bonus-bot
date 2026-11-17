@@ -1,7 +1,12 @@
 from datetime import datetime
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from database_functions.admin_db import get_all_users_data, get_all_links_data, get_statistics_summary
-from database_functions.loyalty_stats_db import fetch_poster_bonus_balances, get_loyalty_statistics_summary
+from database_functions.loyalty_stats_db import (
+    fetch_local_bonus_balances,
+    fetch_poster_bonus_balances,
+    get_loyalty_statistics_summary,
+)
+from utils.kyiv_time import format_date_ua, format_dt_ua, now_kyiv
 import pandas as pd
 
 
@@ -27,8 +32,6 @@ def format_message_text(message) -> str:
 
 
 def format_entities(text: str, entities: list = None) -> str:
-    print(text)
-    print(entities)
     if not text or not entities:
         return text
 
@@ -377,50 +380,71 @@ def _uah(amount: float) -> str:
     return f"{amount:,.2f}".replace(",", " ").replace(".", ",")
 
 
-def format_statistics_message():
+def format_statistics_message(*, refresh_poster: bool = False) -> str:
+    """Build admin stats. Uses local DB only by default (fast).
+
+    refresh_poster=True — slow live sweep of every Poster card (use rarely).
+    """
     stats = get_statistics_summary()
     loyalty = get_loyalty_statistics_summary()
-    poster_bal = fetch_poster_bonus_balances()
-    
+    if refresh_poster:
+        bal = fetch_poster_bonus_balances(force=True)
+        bal_line = (
+            f"• На балансах у <b>Poster</b> (живе): <b>{_uah(bal['outstanding_bonus_uah'])} грн</b> "
+            f"({bal['clients_with_bonus_balance']} з балансом"
+            + (f", помилок {bal['poster_errors']}" if bal.get("poster_errors") else "")
+            + f") · {_esc_plain(bal.get('as_of'))}"
+        )
+    else:
+        bal = fetch_local_bonus_balances()
+        unknown = int(bal.get("clients_unknown_balance") or 0)
+        bal_line = (
+            f"• Орієнтовно на балансах: <b>{_uah(bal['outstanding_bonus_uah'])} грн</b> "
+            f"({bal['clients_with_bonus_balance']} клієнтів з відомим балансом"
+            + (f", без даних: {unknown}" if unknown else "")
+            + ")\n"
+            f"   <i>З останніх відомих у боті — без опитування Poster. "
+            f"Кнопка нижче — рідке живе оновлення.</i>"
+        )
+
     language_emoji = {
-        'uk': '🇺🇦',
-        'ru': '🇷',
-        'en': '🇬🇧',
-        'pl': '🇵🇱',
-        'de': '🇩🇪',
-        'fr': '🇫🇷',
-        'es': '🇪🇸',
-        'it': '🇮🇹'
+        "uk": "🇺🇦",
+        "ru": "🇷🇺",
+        "en": "🇬🇧",
+        "pl": "🇵🇱",
+        "de": "🇩🇪",
+        "fr": "🇫🇷",
+        "es": "🇪🇸",
+        "it": "🇮🇹",
     }
-    
+
     languages_text = ""
-    for lang, count in stats['languages']:
-        emoji = language_emoji.get(lang, '🌐')
-        percentage = (count / stats['total_users'] * 100) if stats['total_users'] > 0 else 0
+    for lang, count in stats["languages"]:
+        emoji = language_emoji.get(lang, "🌐")
+        percentage = (count / stats["total_users"] * 100) if stats["total_users"] > 0 else 0
         languages_text += f"   {emoji} {lang or 'Невідомо'}: {count} ({percentage:.1f}%)"
-    
+
     top_links_text = ""
-    if stats['top_links']:
-        for i, (link_name, clicks) in enumerate(stats['top_links'], 1):
+    if stats["top_links"]:
+        for i, (link_name, clicks) in enumerate(stats["top_links"], 1):
             top_links_text += f"   {i}. {link_name}: {clicks} переходів"
     else:
         top_links_text = "   Немає даних\n"
-    
-    phone_percentage = (stats['users_with_phone'] / stats['total_users'] * 100) if stats['total_users'] > 0 else 0
-    links_percentage = (stats['users_from_links'] / stats['total_users'] * 100) if stats['total_users'] > 0 else 0
-    
+
+    phone_percentage = (
+        (stats["users_with_phone"] / stats["total_users"] * 100) if stats["total_users"] > 0 else 0
+    )
+    links_percentage = (
+        (stats["users_from_links"] / stats["total_users"] * 100) if stats["total_users"] > 0 else 0
+    )
+
     reg = loyalty["registered_clients"]
     reg_pct = (reg / stats["total_users"] * 100) if stats["total_users"] > 0 else 0
-    poster_line = (
-        f"• На балансах у Poster зараз: <b>{_uah(poster_bal['outstanding_bonus_uah'])} грн</b> "
-        f"({poster_bal['clients_with_bonus_balance']} клієнтів з балансом)"
-    )
-    if poster_bal["poster_errors"]:
-        poster_line += f"\n   ⚠️ Не вдалося оновити {poster_bal['poster_errors']} карток"
 
     from database_functions.client_db import count_bonuses_blocked
 
     blocked_n = count_bonuses_blocked()
+    updated = now_kyiv().strftime("%d.%m.%Y %H:%M")
 
     message = f"""<b>📊 ДЕТАЛЬНА СТАТИСТИКА БОТА</b>
 
@@ -439,7 +463,7 @@ def format_statistics_message():
 • Нараховано кешбеку (бот): <b>{_uah(loyalty['cashback_accrued_uah'])} грн</b>
 • Списано в чеках: <b>{_uah(loyalty['bonus_spent_uah'])} грн</b>
 • Вітальні: <b>{loyalty['welcome_count']}</b> видач (~<b>{_uah(loyalty['welcome_total_est_uah'])} грн</b> за поточним тарифом)
-{poster_line}
+{bal_line}
 
 <b>🛒 ПОКУПКИ (клієнти бота, з 00:00 Києва)</b>
 • Сьогодні: <b>{loyalty['purchases_today']}</b> чеків, <b>{loyalty['buyers_today']}</b> клієнтів, <b>{_uah(loyalty['payed_today_uah'])} грн</b>
@@ -468,18 +492,22 @@ def format_statistics_message():
 <b>🏆 ТОП-5 ПОСИЛАНЬ:</b>
 {top_links_text}
 
-<i>📅 Оновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')} (періоди — календарний день Києва)</i>"""
-    
+<i>📅 Оновлено: {updated} (Київ) · періоди — календарний день</i>"""
+
     return message
+
+
+def _esc_plain(s: object) -> str:
+    return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def generate_clients_export() -> tuple[str, int]:
     """Excel of all registered clients with spend / Крафтики / referrals / venues.
 
+    Uses last_known_bonus (local) — no live Poster N× sweep.
     Returns (filename, clients_count). Caller should delete the file after send.
     """
     from database_functions.clients_admin_db import iter_clients_stats_for_export
-    from services import poster
 
     rows = iter_clients_stats_for_export()
     export_rows = []
@@ -491,13 +519,7 @@ def generate_clients_export() -> tuple[str, int]:
             or ""
         )
         balance = None
-        cid = r.get("poster_client_id")
-        if cid:
-            try:
-                balance = poster.get_client_bonus_uah(cid)
-            except Exception:
-                balance = None
-        if balance is None and r.get("last_known_bonus") is not None:
+        if r.get("last_known_bonus") is not None:
             try:
                 balance = float(r["last_known_bonus"])
             except (TypeError, ValueError):
@@ -515,10 +537,12 @@ def generate_clients_export() -> tuple[str, int]:
                 "Телефон": r.get("user_phone") or "",
                 "Картка": r.get("card_number") or "",
                 "Poster client_id": r.get("poster_client_id") or "",
-                "Дата народження": (str(r.get("birthday") or "")[:10] if r.get("birthday") else ""),
+                "Дата народження": (
+                    format_date_ua(r.get("birthday"), empty="") if r.get("birthday") else ""
+                ),
                 "Вік": r.get("age") if r.get("age") is not None else "",
-                "Реєстрація": r.get("join_date") or "",
-                "Остання активність": r.get("last_activity") or "",
+                "Реєстрація": format_dt_ua(r.get("join_date"), empty=""),
+                "Остання активність": format_dt_ua(r.get("last_activity"), empty=""),
                 "Крафтики заблоковано": "так" if int(r.get("bonuses_blocked") or 0) else "ні",
                 "Вітальний бонус": "так" if int(r.get("welcome_bonus_given") or 0) else "ні",
                 "Бонус ДН": "так" if int(r.get("birthday_bonus_given") or 0) else "ні",
@@ -529,6 +553,7 @@ def generate_clients_export() -> tuple[str, int]:
                 "Крафтики на балансі": (
                     round(float(balance), 2) if balance is not None else ""
                 ),
+                "Баланс оновлено": format_dt_ua(r.get("last_known_bonus_at"), empty=""),
                 "Улюблена кавʼярня": r.get("top_spot") or "",
                 "Кавʼярні (усі)": r.get("spots_visited") or "",
                 "Привів (Telegram ID)": r.get("referred_by_user_id") or "",
@@ -582,13 +607,14 @@ def generate_clients_export() -> tuple[str, int]:
             "P": 16,   # Нараховано
             "Q": 14,   # Списано
             "R": 16,   # Крафтики на балансі
-            "S": 20,   # Улюблена кавʼярня
-            "T": 28,   # Кавʼярні (усі)
-            "U": 16,   # Привів (Telegram ID)
-            "V": 20,   # Привів (імʼя)
-            "W": 16,   # Привів (телефон)
-            "X": 12,   # Запросив друзів
-            "Y": 12,   # З них виплачено
+            "S": 18,   # Баланс оновлено
+            "T": 20,   # Улюблена кавʼярня
+            "U": 28,   # Кавʼярні (усі)
+            "V": 16,   # Привів (Telegram ID)
+            "W": 20,   # Привів (імʼя)
+            "X": 16,   # Привів (телефон)
+            "Y": 12,   # Запросив друзів
+            "Z": 12,   # З них виплачено
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width

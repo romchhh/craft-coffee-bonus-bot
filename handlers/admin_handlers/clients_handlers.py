@@ -85,12 +85,15 @@ async def _set_browse(state: FSMContext, **fields) -> dict:
     return browse
 
 
-async def _build_client_card(
+def _build_client_card_sync(
     user: dict,
     *,
     browse: dict | None = None,
+    refresh_balance: bool = False,
 ) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Sync card builder — call via asyncio.to_thread from handlers."""
     from database_functions.charge_db import get_loyalty_row
+    from database_functions.client_db import set_last_known_bonus
     from database_functions.clients_admin_db import (
         _age_years,
         get_client_admin_details,
@@ -98,8 +101,8 @@ async def _build_client_card(
         list_friends_of_referrer,
     )
     from database_functions.referrals_db import referrer_stats
-    from services import poster
     from services.charge_loyalty import get_cashback_percent_for_user
+    from utils.kyiv_time import format_date_ua, format_dt_ua
 
     uid = int(user["user_id"])
     name = (
@@ -113,24 +116,37 @@ async def _build_client_card(
     phone = (user.get("user_phone") or "—").strip() or "—"
     card = (user.get("card_number") or "—").strip() or "—"
     poster_id = user.get("poster_client_id")
+
     blocked = bool(int(user.get("bonuses_blocked") or 0))
-    join = (user.get("registered_at") or user.get("join_date") or "—")[:19]
-    activity = (user.get("last_activity") or "—")[:16]
+    join = format_dt_ua(user.get("registered_at") or user.get("join_date"))
+    activity = format_dt_ua(user.get("last_activity"))
     mailing_off = bool(int(user.get("mailing_opt_out") or 0))
 
     balance = None
     balance_note = ""
-    if poster_id:
+    if refresh_balance and poster_id:
         try:
-            balance = poster.get_client_bonus_uah(poster_id)
+            from services import poster
+
+            balance = float(poster.get_client_bonus_uah(poster_id, timeout=6.0))
+            try:
+                set_last_known_bonus(uid, balance)
+            except Exception:
+                pass
+            balance_note = " · Poster зараз"
         except Exception as exc:
             log.warning("admin client balance user=%s: %s", uid, exc)
-            if user.get("last_known_bonus") is not None:
-                try:
-                    balance = float(user["last_known_bonus"])
-                    balance_note = " (останній відомий)"
-                except (TypeError, ValueError):
-                    pass
+            balance_note = " · Poster недоступний"
+    if balance is None and user.get("last_known_bonus") is not None:
+        try:
+            balance = float(user["last_known_bonus"])
+            as_of = format_dt_ua(user.get("last_known_bonus_at"), empty="")
+            if not refresh_balance:
+                balance_note = f" · локально{(' · ' + as_of) if as_of else ''}"
+            elif not balance_note:
+                balance_note = " (останній відомий)"
+        except (TypeError, ValueError):
+            pass
 
     try:
         pct = get_cashback_percent_for_user(uid)
@@ -145,14 +161,14 @@ async def _build_client_card(
     age_line = "ДН: не вказано"
     if birthday and birthday not in ("0000-00-00",):
         age = _age_years(birthday)
-        age_line = f"ДН: <code>{_esc(birthday[:10])}</code>" + (
+        age_line = f"ДН: <code>{_esc(format_date_ua(birthday))}</code>" + (
             f" · <b>{age}</b> р." if age is not None else ""
         )
 
     bal_line = (
         f"Баланс: <b>{_uah(balance)}</b> Крафтиків{balance_note}"
         if balance is not None
-        else "Баланс: <i>немає даних з Poster</i>"
+        else "Баланс: <i>немає локальних даних — натисни «♻️ Баланс Poster»</i>"
     )
     block_line = (
         "🚫 <b>Крафтики ЗАБЛОКОВАНО</b>"
@@ -172,9 +188,7 @@ async def _build_client_card(
         flags.append("розсилка ✗")
     flags_s = ", ".join(flags) if flags else "—"
 
-    last_buy = (stats.get("last_purchase_at") or "—")
-    if isinstance(last_buy, str):
-        last_buy = last_buy[:16]
+    last_buy = format_dt_ua(stats.get("last_purchase_at"))
     spots = (stats.get("spots_visited") or "").strip()
     top_spot = (stats.get("top_spot") or "").strip()
 
@@ -256,12 +270,27 @@ async def _build_client_card(
     return text, kb
 
 
+async def _build_client_card(
+    user: dict,
+    *,
+    browse: dict | None = None,
+    refresh_balance: bool = False,
+) -> tuple[str, types.InlineKeyboardMarkup]:
+    return await asyncio.to_thread(
+        _build_client_card_sync,
+        user,
+        browse=browse,
+        refresh_balance=refresh_balance,
+    )
+
+
 async def _show_client_by_id(
     callback: types.CallbackQuery,
     state: FSMContext,
     uid: int,
     *,
     answer_text: str | None = None,
+    refresh_balance: bool = False,
 ) -> None:
     from database_functions.client_db import get_user
 
@@ -275,15 +304,20 @@ async def _show_client_by_id(
     if not user or not user.get("registered"):
         await callback.answer("Клієнта не знайдено", show_alert=True)
         return
-    text, kb = await _build_client_card(user, browse=browse)
+    if refresh_balance:
+        await callback.answer("Опитую Poster…")
+    text, kb = await _build_client_card(
+        user, browse=browse, refresh_balance=refresh_balance
+    )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    await callback.answer(answer_text)
+    if not refresh_balance:
+        await callback.answer(answer_text)
 
 
-async def _hub_text() -> str:
+def _hub_text_sync() -> str:
     from database_functions.client_db import count_bonuses_blocked
     from database_functions.loyalty_stats_db import get_loyalty_statistics_summary
 
@@ -293,8 +327,13 @@ async def _hub_text() -> str:
         "👤 <b>Клієнти</b>\n\n"
         f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
         f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
-        "Список зберігає фільтри й позицію — можна гортати картки ⬅️➡️ і повертатись назад."
+        "Картки й списки — з локальної БД (швидко).\n"
+        "Живий баланс Poster — кнопка «♻️ Баланс Poster» на картці."
     )
+
+
+async def _hub_text() -> str:
+    return await asyncio.to_thread(_hub_text_sync)
 
 
 @router.message(IsAdmin(), F.text == "👤 Клієнти")
@@ -357,8 +396,8 @@ async def clients_export_xlsx(callback: types.CallbackQuery):
                 f"📊 <b>Клієнти зі статистикою</b>\n"
                 f"Записів: <b>{count}</b>\n"
                 f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                "<i>Витрати / Крафтики / кавʼярні — за чеками в боті. "
-                "У файлі увімкнено фільтри Excel.</i>"
+                "<i>Витрати / кавʼярні — з чеків у боті. "
+                "Баланс — last known (без живого Poster). Фільтри Excel увімкнено.</i>"
             ),
             parse_mode="HTML",
         )
@@ -386,8 +425,13 @@ async def _render_clients_list(
     data = await state.get_data()
     spot = data.get("clients_filter_spot") or None
     product = data.get("clients_filter_product") or None
-    rows, total = list_clients_sorted(
-        sort, offset=offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
+    rows, total = await asyncio.to_thread(
+        list_clients_sorted,
+        sort,
+        offset=offset,
+        limit=PAGE_SIZE,
+        spot_name=spot,
+        product_q=product,
     )
     ids = [int(r["user_id"]) for r in rows]
     await _set_browse(
@@ -523,8 +567,12 @@ async def clients_filter_product_query(message: types.Message, state: FSMContext
     await state.set_state(None)
     from database_functions.clients_admin_db import PAGE_SIZE, list_clients_sorted
 
-    rows, total = list_clients_sorted(
-        "spent_desc", offset=0, limit=PAGE_SIZE, product_q=raw
+    rows, total = await asyncio.to_thread(
+        list_clients_sorted,
+        "spent_desc",
+        offset=0,
+        limit=PAGE_SIZE,
+        product_q=raw,
     )
     ids = [int(r["user_id"]) for r in rows]
     await _set_browse(
@@ -692,7 +740,9 @@ async def clients_search_query(message: types.Message, state: FSMContext):
         await message.answer("Скасовано.", reply_markup=get_clients_hub_keyboard())
         return
 
-    found = enrich_clients_list_metrics(search_clients(raw, limit=40))
+    found = await asyncio.to_thread(
+        lambda: enrich_clients_list_metrics(search_clients(raw, limit=40))
+    )
     await state.set_state(None)
     ids = [int(u["user_id"]) for u in found]
     await _set_browse(
@@ -732,7 +782,9 @@ async def clients_recent(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import list_recent_registered
     from database_functions.clients_admin_db import enrich_clients_list_metrics
 
-    rows = enrich_clients_list_metrics(list_recent_registered(25))
+    rows = await asyncio.to_thread(
+        lambda: enrich_clients_list_metrics(list_recent_registered(25))
+    )
     if not rows:
         await callback.answer("Немає зареєстрованих", show_alert=True)
         return
@@ -754,8 +806,6 @@ async def clients_recent(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data == "clients_anomalies")
 async def clients_anomalies(callback: types.CallbackQuery, state: FSMContext):
-    import asyncio
-
     from database_functions.anomalies_db import build_anomalies_report
 
     await callback.answer("Аналізую…")
@@ -779,16 +829,19 @@ async def clients_blocked_list(callback: types.CallbackQuery, state: FSMContext)
     from database_functions.clients_admin_db import enrich_clients_list_metrics
     from database_functions.db import get_connection
 
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT * FROM users
-        WHERE registered = 1 AND COALESCE(bonuses_blocked, 0) = 1
-        ORDER BY COALESCE(last_activity, '') DESC
-        LIMIT 40
-        """
-    ).fetchall()
-    users = enrich_clients_list_metrics([dict(r) for r in rows])
+    def _load():
+        conn = get_connection()
+        rows = conn.execute(
+            """
+            SELECT * FROM users
+            WHERE registered = 1 AND COALESCE(bonuses_blocked, 0) = 1
+            ORDER BY COALESCE(last_activity, '') DESC
+            LIMIT 40
+            """
+        ).fetchall()
+        return enrich_clients_list_metrics([dict(r) for r in rows])
+
+    users = await asyncio.to_thread(_load)
     if not users:
         await callback.answer("Немає заблокованих", show_alert=True)
         return
@@ -811,7 +864,13 @@ async def clients_blocked_list(callback: types.CallbackQuery, state: FSMContext)
 @router.callback_query(IsAdmin(), F.data.startswith("client_view:"))
 async def client_view(callback: types.CallbackQuery, state: FSMContext):
     uid = int((callback.data or "").split(":", 1)[-1])
-    await _show_client_by_id(callback, state, uid)
+    await _show_client_by_id(callback, state, uid, refresh_balance=False)
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("client_bal:"))
+async def client_balance_poster(callback: types.CallbackQuery, state: FSMContext):
+    uid = int((callback.data or "").split(":", 1)[-1])
+    await _show_client_by_id(callback, state, uid, refresh_balance=True)
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_back")
@@ -831,7 +890,13 @@ async def clients_back(callback: types.CallbackQuery, state: FSMContext):
         from database_functions.clients_admin_db import enrich_clients_list_metrics
 
         query = (browse.get("query") or "").strip()
-        found = enrich_clients_list_metrics(search_clients(query, limit=40)) if query else []
+        found = (
+            await asyncio.to_thread(
+                lambda: enrich_clients_list_metrics(search_clients(query, limit=40))
+            )
+            if query
+            else []
+        )
         ids = [int(u["user_id"]) for u in found]
         await _set_browse(
             state, mode="search", query=query, ids=ids, pos=0, offset=0, total=len(ids)
@@ -901,8 +966,13 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
             product = data.get("clients_filter_product") or browse.get("product")
             sort = browse.get("sort") or "join_desc"
             new_offset = max(0, offset - PAGE_SIZE)
-            rows, total = list_clients_sorted(
-                sort, offset=new_offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
+            rows, total = await asyncio.to_thread(
+                list_clients_sorted,
+                sort,
+                offset=new_offset,
+                limit=PAGE_SIZE,
+                spot_name=spot,
+                product_q=product,
             )
             ids = [int(r["user_id"]) for r in rows]
             if not ids:
@@ -927,8 +997,13 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
             product = data.get("clients_filter_product") or browse.get("product")
             sort = browse.get("sort") or "join_desc"
             new_offset = offset + PAGE_SIZE
-            rows, total = list_clients_sorted(
-                sort, offset=new_offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
+            rows, total = await asyncio.to_thread(
+                list_clients_sorted,
+                sort,
+                offset=new_offset,
+                limit=PAGE_SIZE,
+                spot_name=spot,
+                product_q=product,
             )
             ids = [int(r["user_id"]) for r in rows]
             if not ids:
@@ -954,27 +1029,50 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
     await _show_client_by_id(callback, state, ids[pos])
 
 
-@router.callback_query(IsAdmin(), F.data.startswith("client_hist:"))
-async def client_history(callback: types.CallbackQuery, state: FSMContext):
-    from database_functions.client_db import get_user
-    from database_functions.settings_db import list_bonus_accruals_for_user
-    from services import poster
+def _format_local_history(uid: int, header: str) -> str | None:
+    """Build history text from local processed_transactions. None if empty."""
+    import json as _json
 
-    uid = int((callback.data or "").split(":", 1)[-1])
-    user = get_user(uid)
-    if not user:
-        await callback.answer("Клієнта не знайдено", show_alert=True)
-        return
-    if not user.get("poster_client_id"):
-        await callback.answer("Покупок ще немає", show_alert=True)
-        return
+    from database_functions.settings_db import list_purchases_for_user
+    from utils.kyiv_time import format_dt_ua
 
-    await callback.answer()
-    client_id = user["poster_client_id"]
-    name = user.get("display_name") or user.get("user_first_name") or str(uid)
-    browse = (await state.get_data()).get("clients_browse")
+    local = list_purchases_for_user(uid, limit=25)
+    if not local:
+        return None
+    lines = [header + "<i>З чеків у боті (швидко). Живе з Poster — кнопка нижче.</i>\n"]
+    for row in local:
+        date = format_dt_ua(row.get("date_close") or row.get("processed_at"))
+        payed = float(row.get("payed_sum_uah") or 0)
+        spot = (row.get("spot_name") or "").strip()
+        cashback = float(row.get("bonus_uah") or 0)
+        spent = float(row.get("bonus_spent_uah") or 0)
+        extra = []
+        if cashback > 0:
+            extra.append(f"+{_uah(cashback)} кешбек")
+        if spent > 0:
+            extra.append(f"−{_uah(spent)} списано")
+        tail = f" · {', '.join(extra)}" if extra else ""
+        spot_s = f" · {_esc(spot)}" if spot else ""
+        lines.append(f"• {_esc(date)}{spot_s}: <b>{_uah(payed)}</b> грн{tail}")
+        try:
+            items = _json.loads(row.get("products_json") or "[]")
+        except Exception:
+            items = []
+        for it in items[:8]:
+            qty = float(it.get("count") or 1)
+            qty_s = f"{qty:g}× " if qty > 1 else ""
+            lines.append(f"    ◦ {_esc(qty_s)}{_esc(it.get('name') or 'Товар')}")
+    text = "\n".join(lines)
+    if len(text) > 3900:
+        text = text[:3900] + "\n…"
+    return text
+
+
+def _history_kb(uid: int, user: dict, browse: dict | None, *, live: bool = False):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
     nav_label, has_prev, has_next = _browse_nav_meta(browse)
-    kb = get_client_card_keyboard(
+    base = get_client_card_keyboard(
         uid,
         blocked=bool(int(user.get("bonuses_blocked") or 0)),
         nav_label=nav_label,
@@ -982,8 +1080,72 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
         has_next=has_next,
         back_label=_back_label_for_browse(browse),
     )
-    header = f"📜 <b>Історія · {_esc(name)}</b>\n<code>{uid}</code>\n"
+    rows = list(base.inline_keyboard)
+    if not live and user.get("poster_client_id"):
+        rows.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    text="📡 Історія з Poster (повільно)",
+                    callback_data=f"client_hist_live:{uid}",
+                )
+            ],
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
+@router.callback_query(
+    IsAdmin(),
+    F.data.startswith("client_hist:") | F.data.startswith("client_hist_live:"),
+)
+async def client_history(callback: types.CallbackQuery, state: FSMContext):
+    from database_functions.client_db import get_user
+
+    raw_data = callback.data or ""
+    live = raw_data.startswith("client_hist_live:")
+    uid = int(raw_data.split(":", 1)[-1])
+    user = get_user(uid)
+    if not user:
+        await callback.answer("Клієнта не знайдено", show_alert=True)
+        return
+
+    name = user.get("display_name") or user.get("user_first_name") or str(uid)
+    browse = (await state.get_data()).get("clients_browse")
+    header = f"📜 <b>Історія · {_esc(name)}</b>\n<code>{uid}</code>\n"
+    kb = _history_kb(uid, user, browse, live=live)
+
+    if not live:
+        await callback.answer()
+        text = await asyncio.to_thread(_format_local_history, uid, header)
+        if not text:
+            if user.get("poster_client_id"):
+                await callback.message.answer(
+                    header
+                    + "\nЛокальних чеків немає. Можна підвантажити з Poster:",
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                )
+            else:
+                await callback.message.answer(
+                    header + "\nПокупок ще немає",
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                )
+            return
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    if not user.get("poster_client_id"):
+        await callback.answer("Немає Poster-клієнта", show_alert=True)
+        return
+
+    await callback.answer("Завантажую з Poster…")
+    wait = await callback.message.answer("⏳ Історія з Poster (до ~40 с)…")
+    from database_functions.settings_db import list_bonus_accruals_for_user
+    from services import poster
+    from utils.kyiv_time import format_dt_ua
+
+    client_id = user["poster_client_id"]
     accruals: dict[str, float] = {}
     try:
         for acc in list_bonus_accruals_for_user(uid):
@@ -994,23 +1156,45 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
         pass
 
     def _load() -> tuple[list[dict], dict[int, str]]:
-        txs = poster.get_transactions_for_client(client_id, days=90, include_products=True)
+        txs = poster.get_transactions_for_client(
+            client_id, days=90, include_products=True
+        )
         spots = {
             int(s["spot_id"]): s.get("spot_name") or ""
             for s in poster.get_spots()
             if s.get("spot_id") is not None
         }
-        return txs, spots
+        # Resolve product lines inside the worker (no extra loop on event loop)
+        enriched = []
+        for t in sorted(txs, key=lambda x: x.get("date_close_date") or "", reverse=True)[
+            :25
+        ]:
+            tid = str(t.get("transaction_id") or poster.transaction_id_from_row(t) or "")
+            items = poster.tx_product_lines(t)
+            if not items and tid:
+                try:
+                    items = poster.tx_product_lines(poster.get_transaction(tid) or {})
+                except Exception:
+                    items = []
+            row = dict(t)
+            row["_items"] = items
+            row["_tid"] = tid
+            enriched.append(row)
+        return enriched, spots
 
     try:
         txs, spots = await asyncio.wait_for(asyncio.to_thread(_load), timeout=40)
     except asyncio.TimeoutError:
         log.warning("admin history timeout user=%s", uid)
         await callback.message.answer(
-            header + "\nНе вдалося завантажити історію (таймаут Poster). Спробуй ще раз.",
+            header + "\nТаймаут Poster. Показано можна локальну історію.",
             parse_mode="HTML",
-            reply_markup=kb,
+            reply_markup=_history_kb(uid, user, browse, live=False),
         )
+        try:
+            await wait.delete()
+        except Exception:
+            pass
         return
     except Exception as exc:
         log.warning("admin history user=%s: %s", uid, exc)
@@ -1019,63 +1203,36 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb,
         )
+        try:
+            await wait.delete()
+        except Exception:
+            pass
         return
 
-    txs = sorted(txs, key=lambda x: x.get("date_close_date") or "", reverse=True)[:25]
+    try:
+        await wait.delete()
+    except Exception:
+        pass
+
     if not txs:
-        # Fallback: local loyalty log (purchases already credited in bot)
-        from database_functions.settings_db import list_purchases_for_user
-
-        local = list_purchases_for_user(uid, limit=25)
-        if not local:
-            await callback.message.answer(
-                header + "\nПокупок ще немає",
-                parse_mode="HTML",
-                reply_markup=kb,
-            )
-            return
-        lines = [header]
-        for row in local:
-            date = (row.get("date_close") or row.get("processed_at") or "—")[:16]
-            payed = float(row.get("payed_sum_uah") or 0)
-            spot = (row.get("spot_name") or "").strip()
-            cashback = float(row.get("bonus_uah") or 0)
-            spent = float(row.get("bonus_spent_uah") or 0)
-            extra = []
-            if cashback > 0:
-                extra.append(f"+{_uah(cashback)} кешбек")
-            if spent > 0:
-                extra.append(f"−{_uah(spent)} списано")
-            tail = f" · {', '.join(extra)}" if extra else ""
-            spot_s = f" · {_esc(spot)}" if spot else ""
-            lines.append(f"• {_esc(date)}{spot_s}: <b>{_uah(payed)}</b> грн{tail}")
-            try:
-                import json as _json
-
-                items = _json.loads(row.get("products_json") or "[]")
-            except Exception:
-                items = []
-            for it in items[:8]:
-                qty = float(it.get("count") or 1)
-                qty_s = f"{qty:g}× " if qty > 1 else ""
-                lines.append(f"    ◦ {_esc(qty_s)}{_esc(it.get('name') or 'Товар')}")
-        text = "\n".join(lines)
-        if len(text) > 3900:
-            text = text[:3900] + "\n…"
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.answer(
+            header + "\nУ Poster покупок за 90 днів немає",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
         return
 
-    lines = [header]
+    lines = [header + "<i>Живі дані Poster (90 днів)</i>\n"]
     for t in txs:
-        tid = str(t.get("transaction_id") or poster.transaction_id_from_row(t) or "")
-        date = (t.get("date_close_date") or "—")[:16]
+        tid = t.get("_tid") or ""
+        date = format_dt_ua(t.get("date_close_date"))
         payed = poster.from_minor(t.get("payed_sum"))
         spent = poster.from_minor(t.get("payed_bonus") or 0)
         try:
             spot = spots.get(int(t.get("spot_id") or 0), "")
         except (TypeError, ValueError):
             spot = ""
-        cashback = accruals.get(tid, 0.0)
+        cashback = accruals.get(str(tid), 0.0)
         extra = []
         if cashback > 0:
             extra.append(f"+{_uah(cashback)} кешбек")
@@ -1084,13 +1241,7 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
         tail = f" · {', '.join(extra)}" if extra else ""
         spot_s = f" · {_esc(spot)}" if spot else ""
         lines.append(f"• {_esc(date)}{spot_s}: <b>{_uah(payed)}</b> грн{tail}")
-        items = poster.tx_product_lines(t)
-        if not items and tid:
-            try:
-                items = poster.tx_product_lines(poster.get_transaction(tid) or {})
-            except Exception:
-                items = []
-        for it in items[:8]:
+        for it in (t.get("_items") or [])[:8]:
             qty = float(it.get("count") or 1)
             qty_s = f"{qty:g}× " if qty > 1 else ""
             lines.append(f"    ◦ {_esc(qty_s)}{_esc(it.get('name') or 'Товар')}")
@@ -1098,7 +1249,6 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
     text = "\n".join(lines)
     if len(text) > 3900:
         text = text[:3900] + "\n…"
-
     await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -1114,7 +1264,7 @@ async def client_block(callback: types.CallbackQuery, state: FSMContext):
     set_bonuses_blocked(uid, True)
     user = get_user(uid) or user
     browse = (await state.get_data()).get("clients_browse")
-    text, kb = await _build_client_card(user, browse=browse)
+    text, kb = await _build_client_card(user, browse=browse, refresh_balance=False)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer("Крафтики заблоковано")
 
@@ -1131,7 +1281,7 @@ async def client_unblock(callback: types.CallbackQuery, state: FSMContext):
     set_bonuses_blocked(uid, False)
     user = get_user(uid) or user
     browse = (await state.get_data()).get("clients_browse")
-    text, kb = await _build_client_card(user, browse=browse)
+    text, kb = await _build_client_card(user, browse=browse, refresh_balance=False)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer("Крафтики розблоковано")
 
@@ -1186,7 +1336,9 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
         return
 
     cid = int(user["poster_client_id"])
-    try:
+    wait = await message.answer("⏳ Нараховую в Poster…")
+
+    def _do_gift() -> dict:
         from database_functions import bonus_ledger_db as ldb
         from database_functions.client_db import touch_bonus_accrual
         from services.bonus_ops import apply_bonus_delta
@@ -1203,24 +1355,40 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
             create_lot=True,
         )
         if result.get("status") != "ok":
+            return result
+        touch_bonus_accrual(uid)
+        new_bal = result.get("balance_after")
+        if new_bal is None:
+            try:
+                new_bal = poster.get_client_bonus_uah(cid, timeout=6.0)
+                result["balance_after"] = new_bal
+            except Exception:
+                pass
+        try:
+            from services.wallet_sync import sync_wallets_for_user
+
+            sync_wallets_for_user(int(uid), bonus=result.get("balance_after"))
+        except Exception:
+            pass
+        return result
+
+    try:
+        result = await asyncio.to_thread(_do_gift)
+        if result.get("status") != "ok":
             await message.answer(
                 f"Не вдалося нарахувати: {_esc(result.get('error') or 'помилка')}"
             )
             return
-        touch_bonus_accrual(uid)
         new_bal = result.get("balance_after")
-        if new_bal is None:
-            new_bal = poster.get_client_bonus_uah(cid)
-        try:
-            from services.wallet_sync import sync_wallets_for_user
-
-            sync_wallets_for_user(int(uid), bonus=new_bal)
-        except Exception:
-            pass
     except Exception as exc:
         log.exception("admin gift user=%s", uid)
         await message.answer(f"Не вдалося нарахувати в Poster: {_esc(exc)}")
         return
+    finally:
+        try:
+            await wait.delete()
+        except Exception:
+            pass
 
     await state.set_state(None)
     if browse is not None:
@@ -1232,7 +1400,9 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
         f"Новий баланс: <b>{_uah(new_bal)}</b>",
         parse_mode="HTML",
     )
-    text, kb = await _build_client_card(get_user(uid) or user, browse=browse)
+    text, kb = await _build_client_card(
+        get_user(uid) or user, browse=browse, refresh_balance=False
+    )
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
     # Optional client notify
@@ -1335,5 +1505,7 @@ async def client_cashback_set(message: types.Message, state: FSMContext):
         f"✅ Персональний кешбек {note} для <code>{uid}</code>.",
         parse_mode="HTML",
     )
-    text, kb = await _build_client_card(get_user(uid) or user, browse=browse)
+    text, kb = await _build_client_card(
+        get_user(uid) or user, browse=browse, refresh_balance=False
+    )
     await message.answer(text, parse_mode="HTML", reply_markup=kb)

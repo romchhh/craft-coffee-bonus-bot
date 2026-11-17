@@ -108,6 +108,14 @@ def _migrate_processed_transactions() -> None:
     for col, decl in extras.items():
         if col not in cols:
             cursor.execute(f"ALTER TABLE processed_transactions ADD COLUMN {col} {decl}")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pt_telegram_user "
+        "ON processed_transactions(telegram_user_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pt_user_spot "
+        "ON processed_transactions(telegram_user_id, spot_name)"
+    )
     conn.commit()
 
 

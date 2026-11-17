@@ -1,16 +1,11 @@
+import asyncio
+import os
+from datetime import datetime
+
 from aiogram import F, Router, types
-from aiogram.types import FSInputFile
-from main import bot
-from utils.filters import IsAdmin
 from aiogram.fsm.context import FSMContext
-from keyboards.client_keyboards import get_start_keyboard
-from keyboards.admin_keyboards import (
-    admin_keyboard,
-    get_export_database_keyboard,
-    get_loyalty_settings_keyboard,
-    get_referral_review_keyboard,
-)
-from utils.admin_functions import generate_database_export, format_statistics_message
+from aiogram.types import FSInputFile
+
 from database_functions.settings_db import (
     REWARD_SETTING_KEYS,
     get_cashback_percent,
@@ -21,9 +16,17 @@ from database_functions.settings_db import (
     set_support_username,
     set_welcome_bonus_uah,
 )
+from keyboards.admin_keyboards import (
+    admin_keyboard,
+    get_export_database_keyboard,
+    get_loyalty_settings_keyboard,
+    get_referral_review_keyboard,
+)
+from keyboards.client_keyboards import get_start_keyboard
+from main import bot
 from states.admin_states import LoyaltySettings
-from datetime import datetime
-import os
+from utils.admin_functions import format_statistics_message, generate_database_export
+from utils.filters import IsAdmin
 
 
 router = Router()
@@ -85,8 +88,37 @@ async def my_parcel(message: types.Message, state: FSMContext):
 
 @router.message(IsAdmin(), F.text.in_(["Статистика"]))
 async def statistic_handler(message: types.Message):
-    response_message = format_statistics_message()
-    await message.answer(response_message, parse_mode="HTML", reply_markup=get_export_database_keyboard())
+    # Local DB only — never blocks on live Poster N× API.
+    response_message = await asyncio.to_thread(format_statistics_message)
+    await message.answer(
+        response_message,
+        parse_mode="HTML",
+        reply_markup=get_export_database_keyboard(),
+    )
+
+
+@router.callback_query(IsAdmin(), F.data == "stats_refresh_poster")
+async def stats_refresh_poster(callback: types.CallbackQuery):
+    await callback.answer("Опитую Poster по всіх картках… це може зайняти хвилину")
+    wait = await callback.message.answer(
+        "⏳ Живе оновлення балансів з Poster…\nАдмінка тим часом лишається живою."
+    )
+    try:
+        text = await asyncio.to_thread(
+            lambda: format_statistics_message(refresh_poster=True)
+        )
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=get_export_database_keyboard(),
+        )
+    except Exception as exc:
+        await callback.message.answer(f"⚠️ Не вдалося оновити з Poster: {exc}")
+    finally:
+        try:
+            await wait.delete()
+        except Exception:
+            pass
 
 
 @router.message(IsAdmin(), F.text == "🎁 Лояльність")
@@ -339,28 +371,39 @@ async def referral_approve(callback: types.CallbackQuery):
 
 @router.callback_query(IsAdmin(), F.data == "export_database")
 async def export_database(callback: types.CallbackQuery):
-    response_message = (
+    await callback.answer()
+    await callback.message.answer(
         "<b>ВИГРУЗКА БАЗИ ДАНИХ</b>\n\n"
-        "Зачекайте поки ми сформуємо ексель файл з базою даних"
-    )
-    await callback.message.answer(response_message, parse_mode="HTML")
-
-    filename, users_count, links_count = generate_database_export()
-
-    file = FSInputFile(filename)
-    await bot.send_document(
-        callback.message.chat.id,
-        document=file,
-        caption=(
-            f"📊 База даних експортована\n\n"
-            f"👥 Користувачів: {users_count}\n"
-            f"🔗 Посилань: {links_count}\n"
-            f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-        ),
+        "Формую Excel у фоні — адмінка лишається живою…",
+        parse_mode="HTML",
     )
 
-    if os.path.exists(filename):
-        os.remove(filename)
+    try:
+        filename, users_count, links_count = await asyncio.to_thread(
+            generate_database_export
+        )
+    except Exception as exc:
+        await callback.message.answer(f"❌ Не вдалося сформувати Excel: {exc}")
+        return
+
+    try:
+        file = FSInputFile(filename)
+        await bot.send_document(
+            callback.message.chat.id,
+            document=file,
+            caption=(
+                f"📊 База даних експортована\n\n"
+                f"👥 Користувачів: {users_count}\n"
+                f"🔗 Посилань: {links_count}\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            ),
+        )
+    finally:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
 
 
 @router.callback_query(IsAdmin(), F.data == "backup_db_now")
