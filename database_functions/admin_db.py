@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from database_functions.client_db import (
     conn,
@@ -7,6 +7,7 @@ from database_functions.client_db import (
     get_user_id_by_username,
     get_username_by_user_id,
 )
+from utils.kyiv_time import kyiv_calendar_start
 
 
 def get_users_count():
@@ -43,14 +44,21 @@ def get_all_links_data():
 
 
 def get_new_users_count(days: int):
-    date_threshold = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    """Bot /start joins since start of Kyiv calendar day (today - (days-1)).
+
+    days=1 → today from 00:00 Kyiv; days=7 → last 7 calendar days including today.
+    """
+    days_ago = max(0, int(days) - 1)
+    date_threshold = kyiv_calendar_start(days_ago)
     cursor.execute("SELECT COUNT(*) FROM users WHERE join_date >= ?", (date_threshold,))
     count = cursor.fetchone()[0]
     return count
 
 
 def get_active_users_count(days: int):
-    date_threshold = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    """Users with last_activity since start of Kyiv calendar day (today - (days-1))."""
+    days_ago = max(0, int(days) - 1)
+    date_threshold = kyiv_calendar_start(days_ago)
     cursor.execute("SELECT COUNT(*) FROM users WHERE last_activity >= ?", (date_threshold,))
     count = cursor.fetchone()[0]
     return count

@@ -187,21 +187,35 @@ def _pay_reward(user: dict, amount: float, *, note: str) -> float:
     if not cid:
         return 0.0
     try:
-        poster.change_client_bonus(int(cid), amount)
-        invalidate_client(int(cid))
+        from database_functions import bonus_ledger_db as ldb
+        from services.bonus_ops import apply_bonus_delta
+
+        uid = int(user["user_id"])
+        result = apply_bonus_delta(
+            op_key=f"quest:user:{uid}:{note or 'reward'}",
+            amount_uah=amount,
+            reason=ldb.REASON_QUEST,
+            user_id=uid,
+            poster_client_id=int(cid),
+            title=(note or ldb.REASON_TITLES_UK[ldb.REASON_QUEST])[:80],
+            create_lot=True,
+        )
+        if result.get("status") != "ok":
+            log.warning("quest reward failed user=%s: %s", uid, result)
+            return 0.0
         try:
             from database_functions.client_db import touch_bonus_accrual
 
-            touch_bonus_accrual(int(user["user_id"]))
+            touch_bonus_accrual(uid)
         except Exception:
             pass
         try:
             from services.wallet_sync import sync_wallets_for_user
 
-            sync_wallets_for_user(int(user["user_id"]))
+            sync_wallets_for_user(uid, bonus=result.get("balance_after"))
         except Exception:
             pass
-        log.info("quest reward user=%s +%s (%s)", user.get("user_id"), amount, note)
+        log.info("quest reward user=%s +%s (%s)", uid, amount, note)
         return amount
     except Exception as exc:
         log.warning("quest reward failed user=%s: %s", user.get("user_id"), exc)

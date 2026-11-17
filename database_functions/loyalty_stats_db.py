@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 
 from database_functions.db import get_connection
 from database_functions.settings_db import get_welcome_bonus_uah
+from utils.kyiv_time import kyiv_calendar_start
 
 log = logging.getLogger(__name__)
 
@@ -13,12 +13,13 @@ conn = get_connection()
 cursor = conn.cursor()
 
 
-def _since(days: int) -> str:
-    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _bot_tx_filter() -> str:
     return "telegram_user_id IS NOT NULL"
+
+
+def _tx_when_expr() -> str:
+    """Prefer receipt close time over when the bot processed it."""
+    return "COALESCE(NULLIF(date_close, ''), processed_at)"
 
 
 def get_loyalty_statistics_summary() -> dict:
@@ -64,7 +65,9 @@ def get_loyalty_statistics_summary() -> dict:
 
     return_rate = (returning / buyers_unique * 100) if buyers_unique > 0 else 0.0
 
-    def period_stats(days: int) -> tuple[int, float, int]:
+    def period_stats(days_ago_start: int) -> tuple[int, float, int]:
+        """Calendar window in Kyiv: from start of (today - days_ago_start) through now."""
+        since = kyiv_calendar_start(days_ago_start)
         r = cursor.execute(
             f"""
             SELECT
@@ -72,18 +75,30 @@ def get_loyalty_statistics_summary() -> dict:
                 COALESCE(SUM(payed_sum_uah), 0),
                 COUNT(DISTINCT telegram_user_id)
             FROM processed_transactions
-            WHERE {_bot_tx_filter()} AND processed_at >= ?
+            WHERE {_bot_tx_filter()}
+              AND {_tx_when_expr()} >= ?
             """,
-            (_since(days),),
+            (since,),
         ).fetchone()
         return int(r[0] or 0), float(r[1] or 0), int(r[2] or 0)
 
-    purchases_today, payed_today, buyers_today = period_stats(1)
-    purchases_week, payed_week, buyers_week = period_stats(7)
-    purchases_month, payed_month, buyers_month = period_stats(30)
+    purchases_today, payed_today, buyers_today = period_stats(0)
+    purchases_week, payed_week, buyers_week = period_stats(6)
+    purchases_month, payed_month, buyers_month = period_stats(29)
 
     with_charge = cursor.execute(
         "SELECT COUNT(*) FROM users WHERE registered = 1 AND last_purchase_at IS NOT NULL"
+    ).fetchone()[0]
+
+    # New loyalty cards today (not every /start)
+    new_registered_today = cursor.execute(
+        """
+        SELECT COUNT(*) FROM users
+        WHERE registered = 1
+          AND poster_client_id IS NOT NULL
+          AND COALESCE(registered_at, join_date) >= ?
+        """,
+        (kyiv_calendar_start(0),),
     ).fetchone()[0]
 
     return {
@@ -107,6 +122,8 @@ def get_loyalty_statistics_summary() -> dict:
         "payed_month_uah": payed_month,
         "buyers_month": buyers_month,
         "clients_with_purchase_history": with_charge,
+        "new_registered_today": int(new_registered_today or 0),
+        "period_note": "календарний день з 00:00 за Києвом",
     }
 
 

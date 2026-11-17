@@ -172,6 +172,14 @@ async def _cron_loop(bot) -> None:
             LOYALTY_CRON_LOOKBACK_DAYS,
         )
         try:
+            from services.bonus_ops import resume_incomplete_ops
+
+            resume_report = resume_incomplete_ops(limit=40)
+            if resume_report.get("posted") or resume_report.get("failed"):
+                log.info("bonus ops resume: %s", resume_report)
+        except Exception:
+            log.exception("bonus ops resume tick #%s failed", tick)
+        try:
             await scan_closed_transactions(bot=bot, dry_run=False)
         except Exception:
             log.exception("loyalty cron tick #%s failed", tick)
@@ -191,6 +199,19 @@ async def _cron_loop(bot) -> None:
                 log.info("referral reward expiry: %s", expire_report)
         except Exception:
             log.exception("referral grant cron tick #%s failed", tick)
+        # Anomaly alerts — once per Kyiv day
+        try:
+            from services.anomaly_alerts import scan_and_notify
+            from utils.kyiv_time import now_kyiv
+
+            day_key = now_kyiv().strftime("%Y-%m-%d")
+            if getattr(_cron_loop, "_anomaly_day", None) != day_key:
+                anom = await scan_and_notify(bot)
+                _cron_loop._anomaly_day = day_key  # type: ignore[attr-defined]
+                if anom.get("notified"):
+                    log.info("anomaly alerts: %s", anom)
+        except Exception:
+            log.exception("anomaly alerts tick #%s failed", tick)
         # Bonus burn / 7-day reminders — once per Kyiv calendar day
         try:
             from services.charge_loyalty import process_daily_bonus_expiry

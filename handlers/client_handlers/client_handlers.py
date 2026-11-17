@@ -19,6 +19,7 @@ from keyboards.client_keyboards import (
     get_info_keyboard,
     get_about_keyboard,
     set_webapp_menu,
+    set_chat_webapp_menu,
 )
 from Content.texts import (
     get_registration_welcome,
@@ -165,6 +166,7 @@ async def start_command(message: types.Message, state: FSMContext):
         await state.update_data(referred_by=int(sticky))
 
     if is_registered(user.id):
+        await set_chat_webapp_menu(bot, user.id, registered=True)
         db_user = get_user(user.id)
         name = (db_user or {}).get("display_name") or user.first_name
         await message.answer(
@@ -177,6 +179,7 @@ async def start_command(message: types.Message, state: FSMContext):
             await message.answer("Твоя цифрова картка 👇", reply_markup=inline)
         return
 
+    await set_chat_webapp_menu(bot, user.id, registered=False)
     await message.answer(
         get_registration_welcome(user.first_name),
         parse_mode="HTML",
@@ -274,6 +277,7 @@ async def _finish_registration(
         return
 
     await state.clear()
+    await _ensure_user(message)
     await message.answer("⏳ Створюємо картку в Крафт Кава…")
 
     try:
@@ -358,31 +362,27 @@ async def _send_registration_success(
 ) -> None:
     caption = get_registration_done(display_name, bonus, card_number)
     inline = get_open_card_inline()
-    if inline:
-        caption += "\n\nВідкрий цифрову картку в мінізастосунку 👇"
-    elif not WEBAPP_URL:
+    if not WEBAPP_URL:
         caption += (
             "\n\n<i>Мінізастосунок ще не підключено — покажи штрихкод на касі.</i>"
         )
+
+    await set_chat_webapp_menu(bot, message.from_user.id, registered=True)
 
     pinned_id = None
     try:
         png = render_card_barcode_png(card_number)
         photo = BufferedInputFile(png.read(), filename="craft-card-barcode.png")
+        # Photo without web_app — some clients fail to open Mini App from media captions.
         sent = await message.answer_photo(
             photo=photo,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=inline,
         )
         pinned_id = sent.message_id
     except Exception as exc:
         log.warning("barcode photo failed: %s", exc)
-        sent = await message.answer(
-            caption,
-            parse_mode="HTML",
-            reply_markup=inline,
-        )
+        sent = await message.answer(caption, parse_mode="HTML")
         pinned_id = sent.message_id
 
     if pinned_id:
@@ -394,6 +394,13 @@ async def _send_registration_success(
             )
         except TelegramBadRequest as exc:
             log.info("could not pin registration message: %s", exc)
+
+    # Dedicated text + web_app button — most reliable open path right after signup.
+    if inline:
+        await message.answer(
+            "Відкрий цифрову картку в мінізастосунку 👇",
+            reply_markup=inline,
+        )
 
     await message.answer(
         "Меню бота знизу — картка, Крафтики та підтримка.",
@@ -451,8 +458,18 @@ async def _create_loyalty_card(
         if not welcome_already_given(phone=phone, poster_client_id=client_id):
             amount = get_welcome_bonus_uah()
             if amount > 0:
-                poster.set_bonus(client_id, amount)
-                bonus_given = True
+                from database_functions import bonus_ledger_db as ldb
+                from services.bonus_ops import set_absolute_bonus
+
+                result = set_absolute_bonus(
+                    op_key=f"welcome:poster:{client_id}",
+                    user_id=int(telegram_id),
+                    poster_client_id=int(client_id),
+                    target_uah=amount,
+                    reason=ldb.REASON_WELCOME,
+                    title=ldb.REASON_TITLES_UK[ldb.REASON_WELCOME],
+                )
+                bonus_given = result.get("status") == "ok"
         return client_id, card_number, bonus_given
 
     if welcome_already_given(phone=phone):
@@ -467,13 +484,33 @@ async def _create_loyalty_card(
         return client_id, card_number, False
 
     card_number = allocate_card_number()
+    amount = get_welcome_bonus_uah()
     client_id = poster.create_client(
         name=display_name,
         phone=phone,
         card_number=card_number,
         birthday=birthday,
-        bonus_uah=get_welcome_bonus_uah(),
+        bonus_uah=amount,
     )
+    if amount > 0:
+        from database_functions import bonus_ledger_db as ldb
+        from database_functions.bonus_ledger_db import create_pending, mark_posted
+
+        row = create_pending(
+            op_key=f"welcome:poster:{client_id}",
+            user_id=int(telegram_id),
+            poster_client_id=int(client_id),
+            amount_uah=amount,
+            reason=ldb.REASON_WELCOME,
+            title=ldb.REASON_TITLES_UK[ldb.REASON_WELCOME],
+        )
+        mark_posted(int(row["id"]), balance_after=amount)
+        try:
+            from database_functions.client_db import set_last_known_bonus
+
+            set_last_known_bonus(int(telegram_id), amount)
+        except Exception:
+            pass
     return client_id, card_number, True
 
 
@@ -662,6 +699,24 @@ async def on_startup(router):
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
     start_backup_cron(bot)
+    try:
+        from services.bonus_ops import resume_incomplete_ops
+
+        resume_incomplete_ops(limit=50)
+    except Exception:
+        log.exception("bonus ops resume on startup")
+    try:
+        from database_functions import mailing_jobs_db as mdb
+        from handlers.admin_handlers.mailing_handlers import run_mailing_job
+
+        for job in mdb.list_incomplete_jobs():
+            asyncio.create_task(
+                run_mailing_job(int(job["id"])),
+                name=f"mailing_resume_{job['id']}",
+            )
+            log.info("resuming mailing job #%s", job["id"])
+    except Exception:
+        log.exception("mailing resume on startup")
     log.info("Bot @%s started", me.username)
     if WEBAPP_URL:
         log.info("Mini App: %s", WEBAPP_URL)

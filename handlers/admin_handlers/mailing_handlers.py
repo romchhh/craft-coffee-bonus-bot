@@ -251,8 +251,123 @@ async def confirm_publish(callback_query: types.CallbackQuery, state: FSMContext
     )
 
 
+async def _send_mailing_to(
+    recipient_id: int,
+    *,
+    media_info,
+    media_type,
+    content_info,
+    reply_markup,
+    disable_notification: bool,
+) -> None:
+    if media_info:
+        if media_type == "photo":
+            await bot.send_photo(
+                recipient_id,
+                media_info,
+                caption=content_info,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_notification=disable_notification,
+            )
+        elif media_type == "video":
+            await bot.send_video(
+                recipient_id,
+                media_info,
+                caption=content_info,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_notification=disable_notification,
+            )
+        elif media_type == "document":
+            await bot.send_document(
+                recipient_id,
+                media_info,
+                caption=content_info,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_notification=disable_notification,
+            )
+        else:
+            await bot.send_message(
+                recipient_id,
+                content_info,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_notification=disable_notification,
+            )
+    else:
+        await bot.send_message(
+            recipient_id,
+            content_info,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+            disable_notification=disable_notification,
+        )
+
+
+async def run_mailing_job(job_id: int, *, progress_chat_id: int | None = None) -> dict:
+    """Process pending recipients for a persisted job (also used after restart)."""
+    from database_functions import mailing_jobs_db as mdb
+    import json
+
+    job = mdb.get_job(job_id)
+    if not job or job.get("status") != mdb.STATUS_RUNNING:
+        return mdb.job_stats(job_id)
+    payload = json.loads(job["payload_json"])
+    media_info = payload.get("media")
+    media_type = payload.get("media_type")
+    content_info = payload.get("content")
+    url_buttons = payload.get("url_buttons")
+    disable_notification = bool(payload.get("disable_notification"))
+    admin_uid = int(job.get("admin_user_id") or 0)
+    # Rebuild keyboard from stored url buttons
+    markup = None
+    try:
+        if url_buttons is not None:
+            markup = post_keyboard(
+                {admin_uid: {"url_buttons": url_buttons}},
+                admin_uid,
+                url_buttons,
+            )
+    except Exception:
+        markup = None
+
+    while True:
+        batch = mdb.list_pending_recipients(job_id, limit=30)
+        if not batch:
+            break
+        for recipient_id in batch:
+            try:
+                await _send_mailing_to(
+                    recipient_id,
+                    media_info=media_info,
+                    media_type=media_type,
+                    content_info=content_info,
+                    reply_markup=markup,
+                    disable_notification=disable_notification,
+                )
+                mdb.mark_recipient(job_id, recipient_id, mdb.RECIPIENT_SENT)
+            except Exception as exc:
+                mdb.mark_recipient(job_id, recipient_id, mdb.RECIPIENT_FAILED, str(exc))
+            await asyncio.sleep(2)
+        if progress_chat_id:
+            st = mdb.job_stats(job_id)
+            if st["sent"] and st["sent"] % 50 == 0:
+                try:
+                    await bot.send_message(
+                        progress_chat_id,
+                        f"Розсилка #{job_id}: надіслано {st['sent']}/{st['total']}…",
+                    )
+                except Exception:
+                    pass
+    return mdb.job_stats(job_id)
+
+
 @router.callback_query(F.data.startswith('confirm_publish_'))
 async def handle_publish_confirmation(callback_query: types.CallbackQuery, state: FSMContext):
+    from database_functions import mailing_jobs_db as mdb
+
     user_id = callback_query.from_user.id
     opted_out = count_mailing_opted_out()
     await callback_query.message.edit_text(
@@ -266,32 +381,29 @@ async def handle_publish_confirmation(callback_query: types.CallbackQuery, state
     media_type = user_data[user_id].get('media_type')
     content_info = user_data[user_id].get('content')
     url_buttons = user_data[user_id].get('url_buttons')
-
-    bell = user_data[user_id].get('bell', 0) 
+    bell = user_data[user_id].get('bell', 0)
     disable_notification = (bell == 0)
-    # Promotional broadcast — never send to users who opted out
     user_ids = get_mailing_recipient_ids()
 
-    sent_count = 0
-    for recipient_id in user_ids: 
-        try:
-            if media_info:
-                if media_type == 'photo':
-                    await bot.send_photo(recipient_id, media_info, caption=content_info, parse_mode='HTML', reply_markup=post_keyboard(user_data, user_id, url_buttons), disable_notification=disable_notification)
-                elif media_type == 'video':
-                    await bot.send_video(recipient_id, media_info, caption=content_info, parse_mode='HTML', reply_markup=post_keyboard(user_data, user_id, url_buttons), disable_notification=disable_notification)
-                elif media_type == 'document':
-                    await bot.send_document(recipient_id, media_info, caption=content_info, parse_mode='HTML', reply_markup=post_keyboard(user_data, user_id, url_buttons), disable_notification=disable_notification)
-            else:
-                await bot.send_message(recipient_id, content_info, parse_mode='HTML', reply_markup=post_keyboard(user_data, user_id, url_buttons), disable_notification=disable_notification)
-            sent_count += 1
-        except Exception as e:
-            print(f"Failed to send message to user {recipient_id}: {e}")
-        await asyncio.sleep(2)
-
+    job_id = mdb.create_job(
+        admin_user_id=user_id,
+        payload={
+            "media": media_info,
+            "media_type": media_type,
+            "content": content_info,
+            "url_buttons": url_buttons,
+            "disable_notification": disable_notification,
+        },
+        recipient_ids=list(user_ids),
+    )
+    stats = await run_mailing_job(job_id, progress_chat_id=callback_query.message.chat.id)
     skip_note = f" · відписаних пропущено: {opted_out}" if opted_out else ""
     await callback_query.message.answer(
-        f"Пост опубліковано для {sent_count} користувачів!{skip_note}"
+        f"Розсилка #{job_id} завершена.\n"
+        f"✅ Надіслано: <b>{stats['sent']}</b>\n"
+        f"❌ Помилок: <b>{stats['failed']}</b>\n"
+        f"Усього в черзі: <b>{stats['total']}</b>{skip_note}",
+        parse_mode="HTML",
     )
 
 

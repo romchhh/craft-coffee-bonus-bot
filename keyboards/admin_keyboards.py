@@ -33,57 +33,99 @@ def get_clients_hub_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_client_card_keyboard(user_id: int, *, blocked: bool) -> InlineKeyboardMarkup:
+def get_client_card_keyboard(
+    user_id: int,
+    *,
+    blocked: bool,
+    nav_label: str | None = None,
+    has_prev: bool = False,
+    has_next: bool = False,
+    back_label: str = "◀️ До списку",
+) -> InlineKeyboardMarkup:
     block_btn = (
         InlineKeyboardButton(text="✅ Розблокувати Крафтики", callback_data=f"client_unblock:{user_id}")
         if blocked
         else InlineKeyboardButton(text="🚫 Заблокувати Крафтики", callback_data=f"client_block:{user_id}")
     )
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_prev or has_next or nav_label:
+        nav: list[InlineKeyboardButton] = []
+        if has_prev:
+            nav.append(InlineKeyboardButton(text="⬅️", callback_data="client_nav:prev"))
+        if nav_label:
+            nav.append(InlineKeyboardButton(text=nav_label, callback_data="client_nav:noop"))
+        if has_next:
+            nav.append(InlineKeyboardButton(text="➡️", callback_data="client_nav:next"))
+        rows.append(nav)
+    rows.extend(
+        [
             [
-                InlineKeyboardButton(text="📜 Історія покупок", callback_data=f"client_hist:{user_id}"),
+                InlineKeyboardButton(text="📜 Історія", callback_data=f"client_hist:{user_id}"),
                 InlineKeyboardButton(text="🔄 Оновити", callback_data=f"client_view:{user_id}"),
             ],
-            [InlineKeyboardButton(text="👥 Реферали клієнта", callback_data=f"client_refs:{user_id}")],
-            [InlineKeyboardButton(text="🎁 Подарувати Крафтики", callback_data=f"client_gift:{user_id}")],
+            [InlineKeyboardButton(text="👥 Реферали", callback_data=f"client_refs:{user_id}")],
+            [
+                InlineKeyboardButton(text="🎁 Подарувати", callback_data=f"client_gift:{user_id}"),
+                InlineKeyboardButton(text="📈 Кешбек %", callback_data=f"client_cashback:{user_id}"),
+            ],
             [block_btn],
-            [InlineKeyboardButton(text="◀️ До клієнтів", callback_data="clients_hub")],
+            [InlineKeyboardButton(text=back_label, callback_data="clients_back")],
+            [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_client_search_results_keyboard(users: list[dict], *, back: str = "clients_hub") -> InlineKeyboardMarkup:
+def _client_row_label(u: dict) -> str:
+    uid = int(u["user_id"])
+    name = (u.get("display_name") or u.get("user_first_name") or "Клієнт").strip()
+    phone = (u.get("user_phone") or "").strip()
+    flag = "🚫 " if int(u.get("bonuses_blocked") or 0) else ""
+    bits: list[str] = []
+    if phone:
+        bits.append(phone[-4:] if len(phone) >= 4 else phone)
+    try:
+        spent = float(u.get("spent_uah") or 0)
+        if spent:
+            bits.append(f"{spent:g}₴")
+    except (TypeError, ValueError):
+        pass
+    try:
+        be = float(u.get("bonus_earned_uah") or 0)
+        if be:
+            bits.append(f"+{be:g}К")
+    except (TypeError, ValueError):
+        pass
+    if u.get("age") is not None:
+        try:
+            bits.append(f"{int(u['age'])}р")
+        except (TypeError, ValueError):
+            pass
+    spot_s = (u.get("top_spot") or "").strip()
+    if spot_s:
+        bits.append(spot_s[:14])
+    label = f"{flag}{name}"
+    if bits:
+        label += " · " + " · ".join(bits)
+    if len(label) > 64:
+        label = label[:63] + "…"
+    return label or str(uid)
+
+
+def get_client_search_results_keyboard(
+    users: list[dict],
+    *,
+    back: str = "clients_back",
+    title_btn: str | None = None,
+) -> InlineKeyboardMarkup:
     rows = []
-    for u in users[:12]:
+    if title_btn:
+        rows.append([InlineKeyboardButton(text=title_btn, callback_data="client_nav:noop")])
+    for u in users[:25]:
         uid = int(u["user_id"])
-        name = (u.get("display_name") or u.get("user_first_name") or "Клієнт").strip()
-        phone = (u.get("user_phone") or "").strip()
-        flag = "🚫 " if int(u.get("bonuses_blocked") or 0) else ""
-        extra_bits = []
-        if u.get("spent_uah") is not None:
-            try:
-                spent = float(u.get("spent_uah") or 0)
-                if spent > 0:
-                    extra_bits.append(f"{spent:g}₴")
-            except (TypeError, ValueError):
-                pass
-        if u.get("bonus_earned_uah") is not None:
-            try:
-                be = float(u.get("bonus_earned_uah") or 0)
-                if be > 0:
-                    extra_bits.append(f"+{be:g}К")
-            except (TypeError, ValueError):
-                pass
-        if u.get("age") is not None:
-            extra_bits.append(f"{int(u['age'])}р")
-        label = f"{flag}{name}"
-        if phone:
-            label += f" · {phone[-4:]}"
-        if extra_bits:
-            label += " · " + " · ".join(extra_bits)
-        label = (label[:60] + "…") if len(label) > 61 else label
-        rows.append([InlineKeyboardButton(text=label, callback_data=f"client_view:{uid}")])
+        rows.append(
+            [InlineKeyboardButton(text=_client_row_label(u), callback_data=f"client_view:{uid}")]
+        )
     rows.append([InlineKeyboardButton(text="🔎 Новий пошук", callback_data="clients_search")])
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -111,53 +153,46 @@ def get_clients_list_keyboard(
     page_size: int = 10,
 ) -> InlineKeyboardMarkup:
     rows = []
+    page = (offset // page_size) + 1
+    pages = max(1, (total + page_size - 1) // page_size)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=f"Стор. {page}/{pages} · {total}",
+                callback_data="client_nav:noop",
+            )
+        ]
+    )
     for u in users:
         uid = int(u["user_id"])
-        name = (u.get("display_name") or u.get("user_first_name") or "Клієнт").strip()
-        flag = "🚫 " if int(u.get("bonuses_blocked") or 0) else ""
-        bits = []
-        try:
-            spent = float(u.get("spent_uah") or 0)
-            if spent:
-                bits.append(f"{spent:g}₴")
-        except (TypeError, ValueError):
-            pass
-        try:
-            be = float(u.get("bonus_earned_uah") or 0)
-            if be:
-                bits.append(f"+{be:g}К")
-        except (TypeError, ValueError):
-            pass
-        if u.get("age") is not None:
-            bits.append(f"{int(u['age'])}р")
-        spot_s = (u.get("top_spot") or "").strip()
-        if spot_s:
-            bits.append(spot_s[:18])
-        label = f"{flag}{name}"
-        if bits:
-            label += " · " + " · ".join(bits)
-        label = (label[:60] + "…") if len(label) > 61 else label
-        rows.append([InlineKeyboardButton(text=label, callback_data=f"client_view:{uid}")])
+        rows.append(
+            [InlineKeyboardButton(text=_client_row_label(u), callback_data=f"client_view:{uid}")]
+        )
 
     nav = []
     if offset > 0:
         prev_off = max(0, offset - page_size)
         nav.append(
-            InlineKeyboardButton(text="◀️", callback_data=f"clients_list:{sort}:{prev_off}")
+            InlineKeyboardButton(text="⬅️ Назад", callback_data=f"clients_list:{sort}:{prev_off}")
         )
     if offset + page_size < total:
         nav.append(
             InlineKeyboardButton(
-                text="▶️", callback_data=f"clients_list:{sort}:{offset + page_size}"
+                text="Далі ➡️", callback_data=f"clients_list:{sort}:{offset + page_size}"
             )
         )
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="↕️ Сортування", callback_data="clients_sort_menu")])
+    rows.append(
+        [
+            InlineKeyboardButton(text="↕️ Сортування", callback_data="clients_sort_menu"),
+            InlineKeyboardButton(text="🔎 Пошук", callback_data="clients_search"),
+        ]
+    )
     rows.append(
         [InlineKeyboardButton(text="🧹 Скинути фільтри", callback_data="clients_clear_filters")]
     )
-    rows.append([InlineKeyboardButton(text="◀️ До клієнтів", callback_data="clients_hub")])
+    rows.append([InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -198,7 +233,7 @@ def get_referrals_browse_keyboard(items: list[dict], *, offset: int, has_more: b
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="⏳ На перевірці", callback_data="referral_review_list")])
-    rows.append([InlineKeyboardButton(text="◀️ До клієнтів", callback_data="clients_hub")])
+    rows.append([InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

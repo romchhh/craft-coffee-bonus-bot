@@ -441,17 +441,18 @@ def format_statistics_message():
 • Вітальні: <b>{loyalty['welcome_count']}</b> видач (~<b>{_uah(loyalty['welcome_total_est_uah'])} грн</b> за поточним тарифом)
 {poster_line}
 
-<b>🛒 ПОКУПКИ (клієнти бота)</b>
+<b>🛒 ПОКУПКИ (клієнти бота, з 00:00 Києва)</b>
 • Сьогодні: <b>{loyalty['purchases_today']}</b> чеків, <b>{loyalty['buyers_today']}</b> клієнтів, <b>{_uah(loyalty['payed_today_uah'])} грн</b>
 • За 7 днів: <b>{loyalty['purchases_week']}</b> чеків, <b>{loyalty['buyers_week']}</b> клієнтів, <b>{_uah(loyalty['payed_week_uah'])} грн</b>
 • За 30 днів: <b>{loyalty['purchases_month']}</b> чеків, <b>{loyalty['buyers_month']}</b> клієнтів, <b>{_uah(loyalty['payed_month_uah'])} грн</b>
+<i>Чеки за датою закриття в Poster (не коли бот їх підхопив).</i>
 
-<b>📈 НОВІ КОРИСТУВАЧІ</b>
-• За сьогодні: <b>{stats['new_today']}</b>
-• За тиждень: <b>{stats['new_week']}</b>
-• За місяць: <b>{stats['new_month']}</b>
+<b>📈 НОВІ (з 00:00 Києва)</b>
+• У боті (/start) сьогодні: <b>{stats['new_today']}</b>
+• Картки лояльності сьогодні: <b>{loyalty.get('new_registered_today', 0)}</b>
+• У боті за тиждень / місяць: <b>{stats['new_week']}</b> / <b>{stats['new_month']}</b>
 
-<b>⚡️ АКТИВНІ КОРИСТУВАЧІ</b>
+<b>⚡️ АКТИВНІ (з 00:00 Києва)</b>
 • За сьогодні: <b>{stats['active_today']}</b>
 • За тиждень: <b>{stats['active_week']}</b>
 • За місяць: <b>{stats['active_month']}</b>
@@ -467,7 +468,7 @@ def format_statistics_message():
 <b>🏆 ТОП-5 ПОСИЛАНЬ:</b>
 {top_links_text}
 
-<i>📅 Оновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}</i>"""
+<i>📅 Оновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')} (періоди — календарний день Києва)</i>"""
     
     return message
 
@@ -478,6 +479,7 @@ def generate_clients_export() -> tuple[str, int]:
     Returns (filename, clients_count). Caller should delete the file after send.
     """
     from database_functions.clients_admin_db import iter_clients_stats_for_export
+    from services import poster
 
     rows = iter_clients_stats_for_export()
     export_rows = []
@@ -488,6 +490,19 @@ def generate_clients_export() -> tuple[str, int]:
             or (f"@{r['referrer_username']}" if r.get("referrer_username") else "")
             or ""
         )
+        balance = None
+        cid = r.get("poster_client_id")
+        if cid:
+            try:
+                balance = poster.get_client_bonus_uah(cid)
+            except Exception:
+                balance = None
+        if balance is None and r.get("last_known_bonus") is not None:
+            try:
+                balance = float(r["last_known_bonus"])
+            except (TypeError, ValueError):
+                balance = None
+
         export_rows.append(
             {
                 "Telegram ID": r.get("user_id"),
@@ -511,10 +526,14 @@ def generate_clients_export() -> tuple[str, int]:
                 "Витрачено грн": round(float(r.get("spent_uah") or 0), 2),
                 "Нараховано Крафтиків": round(float(r.get("bonus_earned_uah") or 0), 2),
                 "Списано Крафтиків": round(float(r.get("bonus_spent_uah") or 0), 2),
+                "Крафтики на балансі": (
+                    round(float(balance), 2) if balance is not None else ""
+                ),
                 "Улюблена кавʼярня": r.get("top_spot") or "",
                 "Кавʼярні (усі)": r.get("spots_visited") or "",
                 "Привів (Telegram ID)": r.get("referred_by_user_id") or "",
                 "Привів (імʼя)": referrer_label,
+                "Привів (телефон)": r.get("referrer_phone") or "",
                 "Запросив друзів": int(r.get("invited_friends") or 0),
                 "З них виплачено": int(r.get("invited_paid") or 0),
             }
@@ -545,29 +564,31 @@ def generate_clients_export() -> tuple[str, int]:
             cell.border = thin_border
 
         widths = {
-            "A": 14,
-            "B": 16,
-            "C": 22,
-            "D": 16,
-            "E": 14,
-            "F": 14,
-            "G": 14,
-            "H": 8,
-            "I": 18,
-            "J": 18,
-            "K": 14,
-            "L": 12,
-            "M": 10,
-            "N": 12,
-            "O": 14,
-            "P": 16,
-            "Q": 14,
-            "R": 20,
-            "S": 28,
-            "T": 16,
-            "U": 20,
-            "V": 12,
-            "W": 12,
+            "A": 14,   # Telegram ID
+            "B": 16,   # Username
+            "C": 22,   # Імʼя
+            "D": 16,   # Телефон
+            "E": 14,   # Картка
+            "F": 14,   # Poster client_id
+            "G": 14,   # Дата народження
+            "H": 8,    # Вік
+            "I": 18,   # Реєстрація
+            "J": 18,   # Остання активність
+            "K": 14,   # Крафтики заблоковано
+            "L": 12,   # Вітальний бонус
+            "M": 10,   # Бонус ДН
+            "N": 12,   # Покупок
+            "O": 14,   # Витрачено
+            "P": 16,   # Нараховано
+            "Q": 14,   # Списано
+            "R": 16,   # Крафтики на балансі
+            "S": 20,   # Улюблена кавʼярня
+            "T": 28,   # Кавʼярні (усі)
+            "U": 16,   # Привів (Telegram ID)
+            "V": 20,   # Привів (імʼя)
+            "W": 16,   # Привів (телефон)
+            "X": 12,   # Запросив друзів
+            "Y": 12,   # З них виплачено
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width

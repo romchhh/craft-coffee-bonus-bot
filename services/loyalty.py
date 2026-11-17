@@ -56,6 +56,13 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     """
     tid = str(transaction_id)
     if is_transaction_processed(tid):
+        # Safe resume: cashback ledger may still be pending after a crash
+        try:
+            from services.bonus_ops import resume_incomplete_ops
+
+            resume_incomplete_ops(limit=20)
+        except Exception:
+            pass
         return {"status": "skip", "reason": "already_processed"}
 
     try:
@@ -168,22 +175,44 @@ async def process_closed_transaction(transaction_id: str | int, bot=None) -> dic
     except Exception as exc:
         log.warning("referral on purchase failed user=%s: %s", user["user_id"], exc)
 
+    from database_functions import bonus_ledger_db as ldb
+    from services.bonus_ops import apply_bonus_delta, record_external_spend
+
     balance_uah = None
     credit_failed = False
-    if bonus_uah > 0:
-        try:
-            poster.change_client_bonus(client_id, bonus_uah)
-            touch_bonus_accrual(int(user["user_id"]))
-            try:
-                from services.poster_client_cache import invalidate_client
 
-                invalidate_client(client_id)
-            except Exception:
-                pass
-            balance_uah = poster.get_client_bonus_uah(client_id)
+    if bonus_spent_uah > 0:
+        try:
+            record_external_spend(
+                op_key=f"spend:tx:{tid}",
+                user_id=int(user["user_id"]),
+                poster_client_id=client_id,
+                amount_uah=bonus_spent_uah,
+                ref_id=tid,
+            )
         except Exception as exc:
-            log.exception("change_client_bonus client=%s tx=%s", client_id, tid)
+            log.warning("spend ledger failed tx=%s: %s", tid, exc)
+
+    if bonus_uah > 0:
+        result = apply_bonus_delta(
+            op_key=f"cashback:tx:{tid}",
+            amount_uah=bonus_uah,
+            reason=ldb.REASON_CASHBACK,
+            user_id=int(user["user_id"]),
+            poster_client_id=client_id,
+            title=ldb.REASON_TITLES_UK[ldb.REASON_CASHBACK],
+            ref_type="transaction",
+            ref_id=tid,
+            meta={"percent": percent, "payed_sum_uah": payed_sum_uah},
+            create_lot=True,
+        )
+        if result.get("status") == "ok":
+            touch_bonus_accrual(int(user["user_id"]))
+            balance_uah = result.get("balance_after")
+        else:
             credit_failed = True
+            log.error("cashback ledger failed tx=%s: %s", tid, result)
+
     if balance_uah is None and (bonus_spent_uah > 0 or quest_events or credit_failed):
         try:
             balance_uah = poster.get_client_bonus_uah(client_id)

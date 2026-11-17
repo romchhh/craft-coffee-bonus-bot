@@ -8,7 +8,6 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from keyboards.admin_keyboards import (
-    admin_keyboard,
     get_client_card_keyboard,
     get_client_search_results_keyboard,
     get_clients_hub_keyboard,
@@ -40,8 +39,65 @@ def _uah(n: float) -> str:
     return f"{v:.2f}".rstrip("0").rstrip(".")
 
 
-async def _build_client_card(user: dict) -> tuple[str, types.InlineKeyboardMarkup]:
+def _browse_nav_meta(browse: dict | None) -> tuple[str | None, bool, bool]:
+    """Return (label, has_prev, has_next) for card navigation."""
+    if not browse:
+        return None, False, False
+    ids = [int(x) for x in (browse.get("ids") or [])]
+    if not ids:
+        return None, False, False
+    try:
+        pos = int(browse.get("pos") or 0)
+    except (TypeError, ValueError):
+        pos = 0
+    pos = max(0, min(pos, len(ids) - 1))
+    mode = browse.get("mode") or ""
+    offset = int(browse.get("offset") or 0)
+    total = int(browse.get("total") or len(ids))
+    if mode == "list":
+        abs_i = offset + pos + 1
+        label = f"{abs_i}/{total}"
+        has_prev = pos > 0 or offset > 0
+        has_next = pos < len(ids) - 1 or (offset + len(ids)) < total
+    else:
+        label = f"{pos + 1}/{len(ids)}"
+        has_prev = pos > 0
+        has_next = pos < len(ids) - 1
+    return label, has_prev, has_next
+
+
+def _back_label_for_browse(browse: dict | None) -> str:
+    mode = (browse or {}).get("mode") or ""
+    return {
+        "list": "◀️ До списку",
+        "search": "◀️ До пошуку",
+        "recent": "◀️ До останніх",
+        "blocked": "◀️ До заблокованих",
+        "refs": "◀️ До рефералів",
+    }.get(mode, "◀️ Назад")
+
+
+async def _set_browse(state: FSMContext, **fields) -> dict:
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    browse.update(fields)
+    await state.update_data(clients_browse=browse)
+    return browse
+
+
+async def _build_client_card(
+    user: dict,
+    *,
+    browse: dict | None = None,
+) -> tuple[str, types.InlineKeyboardMarkup]:
     from database_functions.charge_db import get_loyalty_row
+    from database_functions.clients_admin_db import (
+        _age_years,
+        get_client_admin_details,
+        get_referrer_for_friend,
+        list_friends_of_referrer,
+    )
+    from database_functions.referrals_db import referrer_stats
     from services import poster
     from services.charge_loyalty import get_cashback_percent_for_user
 
@@ -58,15 +114,23 @@ async def _build_client_card(user: dict) -> tuple[str, types.InlineKeyboardMarku
     card = (user.get("card_number") or "—").strip() or "—"
     poster_id = user.get("poster_client_id")
     blocked = bool(int(user.get("bonuses_blocked") or 0))
-    join = (user.get("join_date") or "—")[:16]
+    join = (user.get("registered_at") or user.get("join_date") or "—")[:19]
     activity = (user.get("last_activity") or "—")[:16]
+    mailing_off = bool(int(user.get("mailing_opt_out") or 0))
 
     balance = None
+    balance_note = ""
     if poster_id:
         try:
             balance = poster.get_client_bonus_uah(poster_id)
         except Exception as exc:
             log.warning("admin client balance user=%s: %s", uid, exc)
+            if user.get("last_known_bonus") is not None:
+                try:
+                    balance = float(user["last_known_bonus"])
+                    balance_note = " (останній відомий)"
+                except (TypeError, ValueError):
+                    pass
 
     try:
         pct = get_cashback_percent_for_user(uid)
@@ -76,35 +140,46 @@ async def _build_client_card(user: dict) -> tuple[str, types.InlineKeyboardMarku
         pct = 1.0
         charge_n = 0.0
 
+    stats = get_client_admin_details(uid)
+    birthday = (user.get("birthday") or "").strip()
+    age_line = "ДН: не вказано"
+    if birthday and birthday not in ("0000-00-00",):
+        age = _age_years(birthday)
+        age_line = f"ДН: <code>{_esc(birthday[:10])}</code>" + (
+            f" · <b>{age}</b> р." if age is not None else ""
+        )
+
     bal_line = (
-        f"Баланс Крафтиків: <b>{_uah(balance)}</b>"
+        f"Баланс: <b>{_uah(balance)}</b> Крафтиків{balance_note}"
         if balance is not None
-        else "Баланс Крафтиків: <i>не вдалося зчитати з Poster</i>"
+        else "Баланс: <i>немає даних з Poster</i>"
     )
     block_line = (
-        "🚫 <b>Крафтики ЗАБЛОКОВАНО</b> (кешбек і автонарахування вимкнені)"
+        "🚫 <b>Крафтики ЗАБЛОКОВАНО</b>"
         if blocked
         else "✅ Крафтики активні"
     )
     uname = f"@{_esc(username)}" if username else "—"
+    personal = user.get("personal_cashback_percent")
+    personal_s = f" · перс. <b>{float(personal):g}%</b>" if personal is not None else ""
 
-    birthday = (user.get("birthday") or "").strip()
-    age_line = ""
-    if birthday and birthday not in ("0000-00-00",):
-        from database_functions.clients_admin_db import _age_years
+    flags = []
+    if int(user.get("welcome_bonus_given") or 0):
+        flags.append("вітальний ✓")
+    if int(user.get("birthday_bonus_given") or 0):
+        flags.append("ДН ✓")
+    if mailing_off:
+        flags.append("розсилка ✗")
+    flags_s = ", ".join(flags) if flags else "—"
 
-        age = _age_years(birthday)
-        age_line = f"ДН: {_esc(birthday[:10])}" + (f" · {age} р." if age is not None else "")
-        age_line = age_line + "\n"
+    last_buy = (stats.get("last_purchase_at") or "—")
+    if isinstance(last_buy, str):
+        last_buy = last_buy[:16]
+    spots = (stats.get("spots_visited") or "").strip()
+    top_spot = (stats.get("top_spot") or "").strip()
 
     ref_lines = ""
     try:
-        from database_functions.clients_admin_db import (
-            get_referrer_for_friend,
-            list_friends_of_referrer,
-        )
-        from database_functions.referrals_db import referrer_stats
-
         brought_by = get_referrer_for_friend(uid)
         if brought_by:
             rname = (
@@ -112,56 +187,122 @@ async def _build_client_card(user: dict) -> tuple[str, types.InlineKeyboardMarku
                 or brought_by.get("user_first_name")
                 or brought_by.get("referrer_user_id")
             )
+            rphone = (brought_by.get("user_phone") or "").strip()
             ref_lines += (
-                f"Привів: <b>{_esc(rname)}</b> "
-                f"(<code>{brought_by.get('referrer_user_id')}</code>) · "
-                f"{_esc(brought_by.get('status') or '')}\n"
+                f"Привів: <b>{_esc(rname)}</b> <code>{brought_by.get('referrer_user_id')}</code>"
+                + (f" · {_esc(rphone)}" if rphone else "")
+                + f" · {_esc(brought_by.get('status') or '')}\n"
             )
-        stats = referrer_stats(uid)
-        friends = list_friends_of_referrer(uid, limit=5)
-        if stats.get("registered_friends"):
+        stats_ref = referrer_stats(uid)
+        friends = list_friends_of_referrer(uid, limit=8)
+        if stats_ref.get("registered_friends"):
             ref_lines += (
-                f"Запросив друзів: <b>{stats['registered_friends']}</b> "
-                f"(успішних {stats['successful']}, виплачено {stats['paid']})\n"
+                f"Запросив: <b>{stats_ref['registered_friends']}</b> "
+                f"(успішних {stats_ref['successful']}, "
+                f"виплачено {stats_ref['paid']}, "
+                f"+{_uah(stats_ref.get('earned_uah') or 0)} К)\n"
             )
-            for fr in friends[:3]:
-                fname = fr.get("display_name") or fr.get("user_first_name") or fr.get("friend_user_id")
-                ref_lines += f"  · {_esc(fname)} · {_esc(fr.get('status') or '')}\n"
+            for fr in friends[:5]:
+                fname = (
+                    fr.get("display_name")
+                    or fr.get("user_first_name")
+                    or fr.get("friend_user_id")
+                )
+                ref_lines += (
+                    f"  · {_esc(fname)} <code>{fr.get('friend_user_id')}</code> "
+                    f"· {_esc(fr.get('status') or '')}\n"
+                )
     except Exception as exc:
         log.debug("client card referrals: %s", exc)
 
     text = (
-        f"👤 <b>{_esc(name)}</b>\n\n"
+        f"👤 <b>{_esc(name)}</b>\n"
+        f"{block_line}\n\n"
+        f"<b>Профіль</b>\n"
         f"Telegram ID: <code>{uid}</code>\n"
         f"Username: {uname}\n"
         f"Телефон: <code>{_esc(phone)}</code>\n"
         f"Картка: <code>{_esc(card)}</code>\n"
-        f"Poster client_id: <code>{_esc(poster_id or '—')}</code>\n"
-        f"{age_line}"
-        f"\n{bal_line}\n"
-        f"Кешбек зараз: <b>{pct:g}%</b> · Заряд: <b>{_uah(charge_n)}</b>\n"
-        f"{block_line}\n\n"
+        f"Poster ID: <code>{_esc(poster_id or '—')}</code>\n"
+        f"{age_line}\n"
         f"Реєстрація: {_esc(join)}\n"
-        f"Активність: {_esc(activity)}"
+        f"Активність: {_esc(activity)}\n"
+        f"Прапорці: {_esc(flags_s)}\n\n"
+        f"<b>Крафтики / кешбек</b>\n"
+        f"{bal_line}\n"
+        f"Кешбек зараз: <b>{pct:g}%</b>{personal_s}\n"
+        f"Заряд: <b>{_uah(charge_n)}</b>\n\n"
+        f"<b>Покупки (бот)</b>\n"
+        f"Чеків: <b>{stats['purchases_count']}</b> · "
+        f"витрачено <b>{_uah(stats['spent_uah'])}</b> грн\n"
+        f"Нараховано: <b>+{_uah(stats['bonus_earned_uah'])}</b> · "
+        f"списано: <b>−{_uah(stats['bonus_spent_uah'])}</b>\n"
+        f"Остання покупка: {_esc(last_buy)}\n"
+        f"Улюблена кавʼярня: {_esc(top_spot or '—')}\n"
+        f"Кавʼярні: {_esc(spots or '—')}"
     )
     if ref_lines:
         text += f"\n\n👥 <b>Реферали</b>\n{ref_lines.strip()}"
-    return text, get_client_card_keyboard(uid, blocked=blocked)
+
+    nav_label, has_prev, has_next = _browse_nav_meta(browse)
+    kb = get_client_card_keyboard(
+        uid,
+        blocked=blocked,
+        nav_label=nav_label,
+        has_prev=has_prev,
+        has_next=has_next,
+        back_label=_back_label_for_browse(browse),
+    )
+    return text, kb
+
+
+async def _show_client_by_id(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    uid: int,
+    *,
+    answer_text: str | None = None,
+) -> None:
+    from database_functions.client_db import get_user
+
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    ids = [int(x) for x in (browse.get("ids") or [])]
+    if ids and uid in ids:
+        browse["pos"] = ids.index(uid)
+        await state.update_data(clients_browse=browse)
+    user = get_user(uid)
+    if not user or not user.get("registered"):
+        await callback.answer("Клієнта не знайдено", show_alert=True)
+        return
+    text, kb = await _build_client_card(user, browse=browse)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer(answer_text)
+
+
+async def _hub_text() -> str:
+    from database_functions.client_db import count_bonuses_blocked
+    from database_functions.loyalty_stats_db import get_loyalty_statistics_summary
+
+    loyalty = get_loyalty_statistics_summary()
+    blocked = count_bonuses_blocked()
+    return (
+        "👤 <b>Клієнти</b>\n\n"
+        f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
+        f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
+        "Список зберігає фільтри й позицію — можна гортати картки ⬅️➡️ і повертатись назад."
+    )
 
 
 @router.message(IsAdmin(), F.text == "👤 Клієнти")
 async def clients_hub(message: types.Message, state: FSMContext):
-    from database_functions.client_db import count_bonuses_blocked
-    from database_functions.loyalty_stats_db import get_loyalty_statistics_summary
-
-    await state.clear()
-    loyalty = get_loyalty_statistics_summary()
-    blocked = count_bonuses_blocked()
+    await state.update_data(clients_browse=None)
+    await state.set_state(None)
     await message.answer(
-        "👤 <b>Клієнти</b>\n\n"
-        f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
-        f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
-        "📋 Усі клієнти · 📊 Excel · сортування · хто кого привів · пошук.",
+        await _hub_text(),
         parse_mode="HTML",
         reply_markup=get_clients_hub_keyboard(),
     )
@@ -169,20 +310,20 @@ async def clients_hub(message: types.Message, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data == "clients_hub")
 async def clients_hub_cb(callback: types.CallbackQuery, state: FSMContext):
-    from database_functions.client_db import count_bonuses_blocked
-    from database_functions.loyalty_stats_db import get_loyalty_statistics_summary
-
-    await state.clear()
-    loyalty = get_loyalty_statistics_summary()
-    blocked = count_bonuses_blocked()
-    await callback.message.edit_text(
-        "👤 <b>Клієнти</b>\n\n"
-        f"У програмі: <b>{loyalty['registered_clients']}</b>\n"
-        f"З блокуванням Крафтиків: <b>{blocked}</b>\n\n"
-        "📋 Усі клієнти · 📊 Excel · сортування · хто кого привів · пошук.",
-        parse_mode="HTML",
-        reply_markup=get_clients_hub_keyboard(),
-    )
+    await state.update_data(clients_browse=None)
+    await state.set_state(None)
+    try:
+        await callback.message.edit_text(
+            await _hub_text(),
+            parse_mode="HTML",
+            reply_markup=get_clients_hub_keyboard(),
+        )
+    except Exception:
+        await callback.message.answer(
+            await _hub_text(),
+            parse_mode="HTML",
+            reply_markup=get_clients_hub_keyboard(),
+        )
     await callback.answer()
 
 
@@ -248,6 +389,19 @@ async def _render_clients_list(
     rows, total = list_clients_sorted(
         sort, offset=offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
     )
+    ids = [int(r["user_id"]) for r in rows]
+    await _set_browse(
+        state,
+        mode="list",
+        sort=sort,
+        offset=offset,
+        total=total,
+        ids=ids,
+        pos=0,
+        query=None,
+        spot=spot,
+        product=product,
+    )
     label = SORT_LABELS.get(sort, sort)
     filters = []
     if spot:
@@ -261,7 +415,8 @@ async def _render_clients_list(
         f"📋 <b>Клієнти</b> · {label}\n"
         f"Всього: <b>{total}</b> · стор. {page}/{pages}"
         f"{filt_s}\n\n"
-        "<i>₴ — сума чеків у боті · +К — нараховані Крафтики · р — вік</i>"
+        "<i>Натисни клієнта · ⬅️➡️ між картками · Назад повертає в цей список</i>\n"
+        "<i>₴ чеки · +К нараховано · р вік</i>"
     )
     if not rows:
         text += "\n\nНікого не знайдено за цими умовами."
@@ -365,15 +520,29 @@ async def clients_filter_product_query(message: types.Message, state: FSMContext
         await message.answer("Скасовано.", reply_markup=get_clients_hub_keyboard())
         return
     await state.update_data(clients_filter_product=raw, clients_filter_spot=None)
-    await state.set_state(state=None)
+    await state.set_state(None)
     from database_functions.clients_admin_db import PAGE_SIZE, list_clients_sorted
 
     rows, total = list_clients_sorted(
         "spent_desc", offset=0, limit=PAGE_SIZE, product_q=raw
     )
+    ids = [int(r["user_id"]) for r in rows]
+    await _set_browse(
+        state,
+        mode="list",
+        sort="spent_desc",
+        offset=0,
+        total=total,
+        ids=ids,
+        pos=0,
+        product=raw,
+        spot=None,
+        query=None,
+    )
     await message.answer(
         f"☕ Фільтр продукт: <b>{_esc(raw)}</b>\n"
-        f"Знайдено: <b>{total}</b>",
+        f"Знайдено: <b>{total}</b>\n"
+        "<i>Відкрий картку · ⬅️➡️ · Назад збереже фільтр</i>",
         parse_mode="HTML",
         reply_markup=get_clients_list_keyboard(
             rows, sort="spent_desc", offset=0, total=total, page_size=PAGE_SIZE
@@ -385,7 +554,6 @@ async def clients_filter_product_query(message: types.Message, state: FSMContext
 async def clients_refs_browse(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.clients_admin_db import list_recent_referrals
 
-    await state.clear()
     try:
         offset = int((callback.data or "").split(":")[-1])
     except ValueError:
@@ -397,10 +565,29 @@ async def clients_refs_browse(callback: types.CallbackQuery, state: FSMContext):
     if not page and offset == 0:
         await callback.answer("Рефералів ще немає", show_alert=True)
         return
+    ids: list[int] = []
+    for ref in page:
+        for key in ("friend_user_id", "referrer_user_id"):
+            try:
+                rid = int(ref.get(key) or 0)
+            except (TypeError, ValueError):
+                rid = 0
+            if rid and rid not in ids:
+                ids.append(rid)
+    await _set_browse(
+        state,
+        mode="refs",
+        offset=offset,
+        total=len(ids),
+        ids=ids,
+        pos=0,
+        sort=None,
+        query=None,
+    )
     text = (
         "👥 <b>Хто кого привів</b>\n\n"
-        "Ліва кнопка — друг (кого запросили), «← хто» — запрошувач.\n"
-        "Статуси: bound / pending_grant / paid / owner_review…"
+        "Ліва кнопка — друг, «← хто» — запрошувач.\n"
+        "З картки ⬅️➡️ гортає відкритих у цій сторінці · Назад повертає сюди."
     )
     kb = get_referrals_browse_keyboard(page, offset=offset, has_more=has_more)
     try:
@@ -411,13 +598,14 @@ async def clients_refs_browse(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_refs:"))
-async def client_refs_detail(callback: types.CallbackQuery):
+async def client_refs_detail(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import get_user
     from database_functions.clients_admin_db import (
         get_referrer_for_friend,
         list_friends_of_referrer,
     )
     from database_functions.referrals_db import referrer_stats
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     uid = int((callback.data or "").split(":")[-1])
     user = get_user(uid)
@@ -431,9 +619,12 @@ async def client_refs_detail(callback: types.CallbackQuery):
         rname = brought.get("display_name") or brought.get("user_first_name") or brought.get(
             "referrer_user_id"
         )
+        rphone = (brought.get("user_phone") or "").strip()
         lines.append(
             f"Цього клієнта привів: <b>{_esc(rname)}</b> "
-            f"<code>{brought.get('referrer_user_id')}</code> · {_esc(brought.get('status'))}"
+            f"<code>{brought.get('referrer_user_id')}</code>"
+            + (f" · {_esc(rphone)}" if rphone else "")
+            + f" · {_esc(brought.get('status'))}"
         )
     else:
         lines.append("Ніхто не приводив (або реферал не зафіксований).")
@@ -445,22 +636,36 @@ async def client_refs_detail(callback: types.CallbackQuery):
         f"+{_uah(stats['earned_uah'])} Крафтиків"
     )
     friends = list_friends_of_referrer(uid, limit=20)
+    friend_ids = [uid]
+    if brought and brought.get("referrer_user_id"):
+        friend_ids.append(int(brought["referrer_user_id"]))
     if friends:
         lines.append("")
         for fr in friends:
             fname = fr.get("display_name") or fr.get("user_first_name") or fr.get("friend_user_id")
+            fid = int(fr.get("friend_user_id") or 0)
+            if fid and fid not in friend_ids:
+                friend_ids.append(fid)
             lines.append(
                 f"· {_esc(fname)} <code>{fr.get('friend_user_id')}</code> · {_esc(fr.get('status'))}"
             )
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    # Keep ability to open related people without wiping list context parent
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    if browse.get("mode") not in {"list", "search", "recent", "blocked"}:
+        await _set_browse(state, mode="refs", ids=friend_ids, pos=0, total=len(friend_ids), offset=0)
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="◀️ До картки", callback_data=f"client_view:{uid}")],
             [InlineKeyboardButton(text="📋 Усі реферали", callback_data="clients_refs:0")],
+            [InlineKeyboardButton(text="◀️ Назад у список", callback_data="clients_back")],
         ]
     )
-    await callback.message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    try:
+        await callback.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -469,7 +674,7 @@ async def clients_search_start(callback: types.CallbackQuery, state: FSMContext)
     await state.set_state(ClientAdmin.search)
     await callback.message.answer(
         "🔎 Введи запит: <b>телефон</b>, <b>Telegram ID</b>, "
-        "<b>номер картки</b>, <b>@username</b> або <b>імʼя</b>.\n"
+        "<b>номер картки</b>, <b>Poster ID</b>, <b>@username</b> або <b>імʼя</b>.\n"
         "Або «Скасувати».",
         parse_mode="HTML",
     )
@@ -479,46 +684,71 @@ async def clients_search_start(callback: types.CallbackQuery, state: FSMContext)
 @router.message(IsAdmin(), ClientAdmin.search, F.text)
 async def clients_search_query(message: types.Message, state: FSMContext):
     from database_functions.client_db import search_clients
+    from database_functions.clients_admin_db import enrich_clients_list_metrics
 
     raw = (message.text or "").strip()
     if raw.lower() in {"скасувати", "cancel", "/cancel"}:
-        await state.clear()
-        await message.answer("Скасовано.", reply_markup=admin_keyboard())
+        await state.set_state(None)
+        await message.answer("Скасовано.", reply_markup=get_clients_hub_keyboard())
         return
 
-    found = search_clients(raw)
-    await state.clear()
+    found = enrich_clients_list_metrics(search_clients(raw, limit=40))
+    await state.set_state(None)
+    ids = [int(u["user_id"]) for u in found]
+    await _set_browse(
+        state,
+        mode="search",
+        query=raw,
+        ids=ids,
+        pos=0,
+        offset=0,
+        total=len(ids),
+        sort=None,
+    )
     if not found:
         await message.answer(
-            "Нікого не знайдено. Спробуй інший запит у меню «👤 Клієнти».",
+            f"За запитом «{_esc(raw)}» нікого не знайдено.",
+            parse_mode="HTML",
             reply_markup=get_clients_hub_keyboard(),
         )
         return
     if len(found) == 1:
-        text, kb = await _build_client_card(found[0])
+        text, kb = await _build_client_card(
+            found[0], browse=(await state.get_data()).get("clients_browse")
+        )
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
         return
     await message.answer(
-        f"Знайдено <b>{len(found)}</b> (показую до 12):",
+        f"🔎 Запит: <b>{_esc(raw)}</b>\n"
+        f"Знайдено: <b>{len(found)}</b>\n"
+        "<i>Відкрий картку · ⬅️➡️ між результатами · Назад сюди</i>",
         parse_mode="HTML",
-        reply_markup=get_client_search_results_keyboard(found),
+        reply_markup=get_client_search_results_keyboard(found, back="clients_back"),
     )
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_recent")
 async def clients_recent(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import list_recent_registered
+    from database_functions.clients_admin_db import enrich_clients_list_metrics
 
-    await state.clear()
-    rows = list_recent_registered(12)
+    rows = enrich_clients_list_metrics(list_recent_registered(25))
     if not rows:
         await callback.answer("Немає зареєстрованих", show_alert=True)
         return
-    await callback.message.edit_text(
-        "🆕 <b>Останні зареєстровані</b>",
-        parse_mode="HTML",
-        reply_markup=get_client_search_results_keyboard(rows),
+    ids = [int(u["user_id"]) for u in rows]
+    await _set_browse(
+        state, mode="recent", ids=ids, pos=0, offset=0, total=len(ids), sort=None, query=None
     )
+    text = (
+        f"🆕 <b>Останні зареєстровані</b> · {len(rows)}\n"
+        "<i>Гортай картки ⬅️➡️ · Назад повертає до цього списку</i>"
+    )
+    kb = get_client_search_results_keyboard(rows, back="clients_back")
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -528,7 +758,6 @@ async def clients_anomalies(callback: types.CallbackQuery, state: FSMContext):
 
     from database_functions.anomalies_db import build_anomalies_report
 
-    await state.clear()
     await callback.answer("Аналізую…")
     text = await asyncio.to_thread(build_anomalies_report)
     try:
@@ -547,41 +776,31 @@ async def clients_anomalies(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data == "clients_blocked")
 async def clients_blocked_list(callback: types.CallbackQuery, state: FSMContext):
+    from database_functions.clients_admin_db import enrich_clients_list_metrics
     from database_functions.db import get_connection
 
-    await state.clear()
     conn = get_connection()
     rows = conn.execute(
         """
         SELECT * FROM users
         WHERE registered = 1 AND COALESCE(bonuses_blocked, 0) = 1
         ORDER BY COALESCE(last_activity, '') DESC
-        LIMIT 20
+        LIMIT 40
         """
     ).fetchall()
-    users = [dict(r) for r in rows]
+    users = enrich_clients_list_metrics([dict(r) for r in rows])
     if not users:
         await callback.answer("Немає заблокованих", show_alert=True)
         return
-    await callback.message.edit_text(
-        f"🚫 <b>Заблоковані Крафтики</b> · {len(users)}",
-        parse_mode="HTML",
-        reply_markup=get_client_search_results_keyboard(users),
+    ids = [int(u["user_id"]) for u in users]
+    await _set_browse(
+        state, mode="blocked", ids=ids, pos=0, offset=0, total=len(ids), sort=None, query=None
     )
-    await callback.answer()
-
-
-@router.callback_query(IsAdmin(), F.data.startswith("client_view:"))
-async def client_view(callback: types.CallbackQuery, state: FSMContext):
-    from database_functions.client_db import get_user
-
-    await state.clear()
-    uid = int((callback.data or "").split(":", 1)[-1])
-    user = get_user(uid)
-    if not user or not user.get("registered"):
-        await callback.answer("Клієнта не знайдено", show_alert=True)
-        return
-    text, kb = await _build_client_card(user)
+    text = (
+        f"🚫 <b>Заблоковані Крафтики</b> · {len(users)}\n"
+        "<i>Гортай картки ⬅️➡️ · Назад повертає до цього списку</i>"
+    )
+    kb = get_client_search_results_keyboard(users, back="clients_back")
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
@@ -589,8 +808,154 @@ async def client_view(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(IsAdmin(), F.data.startswith("client_view:"))
+async def client_view(callback: types.CallbackQuery, state: FSMContext):
+    uid = int((callback.data or "").split(":", 1)[-1])
+    await _show_client_by_id(callback, state, uid)
+
+
+@router.callback_query(IsAdmin(), F.data == "clients_back")
+async def clients_back(callback: types.CallbackQuery, state: FSMContext):
+    """Restore previous list / search without resetting filters."""
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    mode = browse.get("mode")
+    if mode == "list":
+        sort = browse.get("sort") or "join_desc"
+        offset = int(browse.get("offset") or 0)
+        await _render_clients_list(callback, state, sort=sort, offset=offset)
+        await callback.answer()
+        return
+    if mode == "search":
+        from database_functions.client_db import search_clients
+        from database_functions.clients_admin_db import enrich_clients_list_metrics
+
+        query = (browse.get("query") or "").strip()
+        found = enrich_clients_list_metrics(search_clients(query, limit=40)) if query else []
+        ids = [int(u["user_id"]) for u in found]
+        await _set_browse(
+            state, mode="search", query=query, ids=ids, pos=0, offset=0, total=len(ids)
+        )
+        if not found:
+            await callback.message.edit_text(
+                "Результати пошуку застаріли — зроби новий пошук.",
+                reply_markup=get_clients_hub_keyboard(),
+            )
+            await callback.answer()
+            return
+        text = (
+            f"🔎 Запит: <b>{_esc(query)}</b>\n"
+            f"Знайдено: <b>{len(found)}</b>"
+        )
+        kb = get_client_search_results_keyboard(found, back="clients_hub")
+        try:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        await callback.answer()
+        return
+    if mode == "recent":
+        await clients_recent(callback, state)
+        return
+    if mode == "blocked":
+        await clients_blocked_list(callback, state)
+        return
+    if mode == "refs":
+        offset = int(browse.get("offset") or 0)
+        # Reuse refs handler by temporarily setting callback data path
+        callback.data = f"clients_refs:{offset}"
+        await clients_refs_browse(callback, state)
+        return
+    await clients_hub_cb(callback, state)
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("client_nav:"))
+async def client_nav(callback: types.CallbackQuery, state: FSMContext):
+    from database_functions.clients_admin_db import PAGE_SIZE, list_clients_sorted
+
+    action = (callback.data or "").split(":")[-1]
+    if action == "noop":
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    ids = [int(x) for x in (browse.get("ids") or [])]
+    if not ids:
+        await callback.answer("Немає списку для гортання — повернись у список", show_alert=True)
+        return
+    try:
+        pos = int(browse.get("pos") or 0)
+    except (TypeError, ValueError):
+        pos = 0
+    pos = max(0, min(pos, len(ids) - 1))
+    mode = browse.get("mode") or ""
+    offset = int(browse.get("offset") or 0)
+    total = int(browse.get("total") or len(ids))
+
+    if action == "prev":
+        if pos > 0:
+            pos -= 1
+        elif mode == "list" and offset > 0:
+            spot = data.get("clients_filter_spot") or browse.get("spot")
+            product = data.get("clients_filter_product") or browse.get("product")
+            sort = browse.get("sort") or "join_desc"
+            new_offset = max(0, offset - PAGE_SIZE)
+            rows, total = list_clients_sorted(
+                sort, offset=new_offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
+            )
+            ids = [int(r["user_id"]) for r in rows]
+            if not ids:
+                await callback.answer("Це перший клієнт", show_alert=True)
+                return
+            offset = new_offset
+            pos = len(ids) - 1
+            browse.update(
+                ids=ids, offset=offset, total=total, pos=pos, spot=spot, product=product
+            )
+            await state.update_data(clients_browse=browse)
+            await _show_client_by_id(callback, state, ids[pos])
+            return
+        else:
+            await callback.answer("Це перший у списку")
+            return
+    elif action == "next":
+        if pos < len(ids) - 1:
+            pos += 1
+        elif mode == "list" and (offset + len(ids)) < total:
+            spot = data.get("clients_filter_spot") or browse.get("spot")
+            product = data.get("clients_filter_product") or browse.get("product")
+            sort = browse.get("sort") or "join_desc"
+            new_offset = offset + PAGE_SIZE
+            rows, total = list_clients_sorted(
+                sort, offset=new_offset, limit=PAGE_SIZE, spot_name=spot, product_q=product
+            )
+            ids = [int(r["user_id"]) for r in rows]
+            if not ids:
+                await callback.answer("Це останній клієнт", show_alert=True)
+                return
+            offset = new_offset
+            pos = 0
+            browse.update(
+                ids=ids, offset=offset, total=total, pos=pos, spot=spot, product=product
+            )
+            await state.update_data(clients_browse=browse)
+            await _show_client_by_id(callback, state, ids[pos])
+            return
+        else:
+            await callback.answer("Це останній у списку")
+            return
+    else:
+        await callback.answer()
+        return
+
+    browse["pos"] = pos
+    await state.update_data(clients_browse=browse)
+    await _show_client_by_id(callback, state, ids[pos])
+
+
 @router.callback_query(IsAdmin(), F.data.startswith("client_hist:"))
-async def client_history(callback: types.CallbackQuery):
+async def client_history(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import get_user
     from database_functions.settings_db import list_bonus_accruals_for_user
     from services import poster
@@ -607,8 +972,15 @@ async def client_history(callback: types.CallbackQuery):
     await callback.answer()
     client_id = user["poster_client_id"]
     name = user.get("display_name") or user.get("user_first_name") or str(uid)
+    browse = (await state.get_data()).get("clients_browse")
+    nav_label, has_prev, has_next = _browse_nav_meta(browse)
     kb = get_client_card_keyboard(
-        uid, blocked=bool(int(user.get("bonuses_blocked") or 0))
+        uid,
+        blocked=bool(int(user.get("bonuses_blocked") or 0)),
+        nav_label=nav_label,
+        has_prev=has_prev,
+        has_next=has_next,
+        back_label=_back_label_for_browse(browse),
     )
     header = f"📜 <b>Історія · {_esc(name)}</b>\n<code>{uid}</code>\n"
 
@@ -731,7 +1103,7 @@ async def client_history(callback: types.CallbackQuery):
 
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_block:"))
-async def client_block(callback: types.CallbackQuery):
+async def client_block(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import get_user, set_bonuses_blocked
 
     uid = int((callback.data or "").split(":", 1)[-1])
@@ -741,13 +1113,14 @@ async def client_block(callback: types.CallbackQuery):
         return
     set_bonuses_blocked(uid, True)
     user = get_user(uid) or user
-    text, kb = await _build_client_card(user)
+    browse = (await state.get_data()).get("clients_browse")
+    text, kb = await _build_client_card(user, browse=browse)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer("Крафтики заблоковано")
 
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_unblock:"))
-async def client_unblock(callback: types.CallbackQuery):
+async def client_unblock(callback: types.CallbackQuery, state: FSMContext):
     from database_functions.client_db import get_user, set_bonuses_blocked
 
     uid = int((callback.data or "").split(":", 1)[-1])
@@ -757,7 +1130,8 @@ async def client_unblock(callback: types.CallbackQuery):
         return
     set_bonuses_blocked(uid, False)
     user = get_user(uid) or user
-    text, kb = await _build_client_card(user)
+    browse = (await state.get_data()).get("clients_browse")
+    text, kb = await _build_client_card(user, browse=browse)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer("Крафтики розблоковано")
 
@@ -786,20 +1160,20 @@ async def client_gift_start(callback: types.CallbackQuery, state: FSMContext):
 async def client_gift_amount(message: types.Message, state: FSMContext):
     from database_functions.client_db import get_user
     from services import poster
-    from services.poster_client_cache import invalidate_client
 
     raw = (message.text or "").strip().replace(",", ".")
+    data = await state.get_data()
+    browse = data.get("clients_browse")
     if raw.lower() in {"скасувати", "cancel", "/cancel"}:
-        await state.clear()
-        await message.answer("Скасовано.", reply_markup=admin_keyboard())
+        await state.set_state(None)
+        await message.answer("Скасовано.")
         return
 
-    data = await state.get_data()
     uid = int(data.get("gift_user_id") or 0)
     user = get_user(uid)
     if not user or not user.get("poster_client_id"):
-        await state.clear()
-        await message.answer("Клієнта не знайдено.", reply_markup=admin_keyboard())
+        await state.set_state(None)
+        await message.answer("Клієнта не знайдено.", reply_markup=get_clients_hub_keyboard())
         return
 
     try:
@@ -813,12 +1187,30 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
 
     cid = int(user["poster_client_id"])
     try:
-        poster.change_client_bonus(cid, amount)
-        invalidate_client(cid)
+        from database_functions import bonus_ledger_db as ldb
         from database_functions.client_db import touch_bonus_accrual
+        from services.bonus_ops import apply_bonus_delta
+        from utils.kyiv_time import kyiv_now_str
 
+        result = apply_bonus_delta(
+            op_key=f"admin_gift:user:{uid}:{kyiv_now_str()}",
+            amount_uah=amount,
+            reason=ldb.REASON_ADMIN_GIFT,
+            user_id=int(uid),
+            poster_client_id=cid,
+            title=ldb.REASON_TITLES_UK[ldb.REASON_ADMIN_GIFT],
+            admin_user_id=int(message.from_user.id),
+            create_lot=True,
+        )
+        if result.get("status") != "ok":
+            await message.answer(
+                f"Не вдалося нарахувати: {_esc(result.get('error') or 'помилка')}"
+            )
+            return
         touch_bonus_accrual(uid)
-        new_bal = poster.get_client_bonus_uah(cid)
+        new_bal = result.get("balance_after")
+        if new_bal is None:
+            new_bal = poster.get_client_bonus_uah(cid)
         try:
             from services.wallet_sync import sync_wallets_for_user
 
@@ -830,16 +1222,17 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
         await message.answer(f"Не вдалося нарахувати в Poster: {_esc(exc)}")
         return
 
-    await state.clear()
+    await state.set_state(None)
+    if browse is not None:
+        await state.update_data(clients_browse=browse)
     name = user.get("display_name") or user.get("user_first_name") or str(uid)
     await message.answer(
         f"✅ Нараховано <b>+{_uah(amount)}</b> Крафтиків клієнту <b>{_esc(name)}</b> "
         f"(<code>{uid}</code>).\n"
         f"Новий баланс: <b>{_uah(new_bal)}</b>",
         parse_mode="HTML",
-        reply_markup=admin_keyboard(),
     )
-    text, kb = await _build_client_card(get_user(uid) or user)
+    text, kb = await _build_client_card(get_user(uid) or user, browse=browse)
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
     # Optional client notify
@@ -854,3 +1247,93 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
         )
     except Exception as exc:
         log.info("gift notify failed user=%s: %s", uid, exc)
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("client_cashback:"))
+async def client_cashback_start(callback: types.CallbackQuery, state: FSMContext):
+    from database_functions.client_db import get_user
+
+    uid = int((callback.data or "").split(":", 1)[-1])
+    user = get_user(uid)
+    if not user:
+        await callback.answer("Клієнта не знайдено", show_alert=True)
+        return
+    current = user.get("personal_cashback_percent")
+    cur = f"{float(current):g}%" if current is not None else "не задано"
+    await state.set_state(ClientAdmin.cashback_percent)
+    await state.update_data(cashback_user_id=uid)
+    await callback.message.answer(
+        f"📈 Персональний кешбек для <code>{uid}</code>\n"
+        f"Зараз: <b>{cur}</b>\n\n"
+        "Введи відсоток (наприклад <code>5</code> або <code>7.5</code>).\n"
+        "Ефективний кешбек = max(персональний, Заряд).\n"
+        "«0» або «скинути» — прибрати персональний %.\n"
+        "Або «Скасувати».",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(IsAdmin(), ClientAdmin.cashback_percent, F.text)
+async def client_cashback_set(message: types.Message, state: FSMContext):
+    from database_functions.client_db import get_user, set_personal_cashback_percent
+    from database_functions import bonus_ledger_db as ldb
+    from utils.kyiv_time import kyiv_now_str
+
+    raw = (message.text or "").strip().replace(",", ".")
+    data = await state.get_data()
+    browse = data.get("clients_browse")
+    if raw.lower() in {"скасувати", "cancel", "/cancel"}:
+        await state.set_state(None)
+        await message.answer("Скасовано.")
+        return
+
+    uid = int(data.get("cashback_user_id") or 0)
+    user = get_user(uid)
+    if not user:
+        await state.set_state(None)
+        await message.answer("Клієнта не знайдено.", reply_markup=get_clients_hub_keyboard())
+        return
+
+    if raw.lower() in {"скинути", "reset", "0", "0.0"}:
+        set_personal_cashback_percent(uid, None)
+        note = "скинуто"
+        pct_val = 0.0
+    else:
+        try:
+            pct_val = float(raw)
+        except ValueError:
+            await message.answer("Некоректне число. Приклад: <code>5</code>", parse_mode="HTML")
+            return
+        if pct_val < 0 or pct_val > 50:
+            await message.answer("Відсоток має бути від 0 до 50.")
+            return
+        if pct_val == 0:
+            set_personal_cashback_percent(uid, None)
+            note = "скинуто"
+        else:
+            set_personal_cashback_percent(uid, pct_val)
+            note = f"встановлено {pct_val:g}%"
+
+    # Audit in ledger (zero amount, factual admin action)
+    row = ldb.create_pending(
+        op_key=f"admin_cashback:user:{uid}:{kyiv_now_str()}",
+        user_id=uid,
+        poster_client_id=user.get("poster_client_id"),
+        amount_uah=0,
+        reason="admin_cashback",
+        title=f"Перс. кешбек: {note}",
+        admin_user_id=int(message.from_user.id),
+        meta={"personal_cashback_percent": None if note == "скинуто" else pct_val},
+    )
+    ldb.mark_posted(int(row["id"]))
+
+    await state.set_state(None)
+    if browse is not None:
+        await state.update_data(clients_browse=browse)
+    await message.answer(
+        f"✅ Персональний кешбек {note} для <code>{uid}</code>.",
+        parse_mode="HTML",
+    )
+    text, kb = await _build_client_card(get_user(uid) or user, browse=browse)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)

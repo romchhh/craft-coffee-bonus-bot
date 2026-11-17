@@ -37,18 +37,27 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     if amount <= 0 or not poster_client_id:
         mark_birthday_bonus_given(user_id)
         return 0.0
-    try:
-        poster.change_client_bonus(poster_client_id, amount)
-        invalidate_client(poster_client_id)
-    except Exception as exc:
-        log.warning("birthday bonus failed user=%s: %s", user_id, exc)
-        raise
+    from database_functions import bonus_ledger_db as ldb
+    from services.bonus_ops import apply_bonus_delta
+
+    result = apply_bonus_delta(
+        op_key=f"birthday:user:{user_id}",
+        amount_uah=amount,
+        reason=ldb.REASON_BIRTHDAY,
+        user_id=user_id,
+        poster_client_id=int(poster_client_id),
+        title=ldb.REASON_TITLES_UK[ldb.REASON_BIRTHDAY],
+        create_lot=True,
+    )
+    if result.get("status") != "ok":
+        log.warning("birthday bonus failed user=%s: %s", user_id, result)
+        raise RuntimeError(result.get("error") or "birthday_bonus_failed")
     mark_birthday_bonus_given(user_id)
     touch_bonus_accrual(user_id)
     try:
         from services.wallet_sync import sync_wallets_for_user
 
-        sync_wallets_for_user(user_id)
+        sync_wallets_for_user(user_id, bonus=result.get("balance_after"))
     except Exception:
         pass
     return amount
@@ -101,18 +110,27 @@ def maybe_grant_annual_birthday(user_id: int) -> float:
     if amount <= 0 or not cid:
         mark_annual_birthday_year(user_id, now.year)
         return 0.0
-    try:
-        poster.change_client_bonus(int(cid), amount)
-        invalidate_client(int(cid))
-    except Exception as exc:
-        log.warning("annual birthday failed user=%s: %s", user_id, exc)
+    from database_functions import bonus_ledger_db as ldb
+    from services.bonus_ops import apply_bonus_delta
+
+    result = apply_bonus_delta(
+        op_key=f"annual_birthday:user:{user_id}:{now.year}",
+        amount_uah=amount,
+        reason=ldb.REASON_ANNUAL_BIRTHDAY,
+        user_id=user_id,
+        poster_client_id=int(cid),
+        title=ldb.REASON_TITLES_UK[ldb.REASON_ANNUAL_BIRTHDAY],
+        create_lot=True,
+    )
+    if result.get("status") != "ok":
+        log.warning("annual birthday failed user=%s: %s", user_id, result)
         return 0.0
     mark_annual_birthday_year(user_id, now.year)
     touch_bonus_accrual(user_id)
     try:
         from services.wallet_sync import sync_wallets_for_user
 
-        sync_wallets_for_user(user_id)
+        sync_wallets_for_user(user_id, bonus=result.get("balance_after"))
     except Exception:
         pass
     return amount

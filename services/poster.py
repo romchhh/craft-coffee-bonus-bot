@@ -90,13 +90,16 @@ def from_minor(amount) -> float:
         return 0.0
 
 
-def to_bonus_write(amount_uah: float) -> int:
-    """bonus / changeClientBonus.count — amount in UAH (no ×100)."""
-    return int(round(float(amount_uah)))
+def to_bonus_write(amount_uah: float) -> float:
+    """bonus / changeClientBonus.count — UAH with 2 decimal places (копійки)."""
+    return round(float(amount_uah or 0), 2)
 
 
 def from_bonus_write(amount) -> float:
-    return float(amount or 0)
+    try:
+        return round(float(amount or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def ean13_from_seq(seq: int) -> str:

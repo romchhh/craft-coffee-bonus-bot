@@ -236,25 +236,39 @@ def grant_pending_referral(ref: dict) -> dict[str, Any]:
 
     amount = float(ref.get("amount_uah") or 0)
     friend_id = int(ref["friend_user_id"])
-    if amount > 0:
-        try:
-            poster.change_client_bonus(int(referrer["poster_client_id"]), amount)
-            invalidate_client(int(referrer["poster_client_id"]))
-            touch_bonus_accrual(int(referrer["user_id"]))
-            try:
-                from services.wallet_sync import sync_wallets_for_user
-
-                sync_wallets_for_user(int(referrer["user_id"]))
-            except Exception:
-                pass
-        except Exception as exc:
-            log.warning("referral grant failed friend=%s: %s", friend_id, exc)
-            return {"status": "error", "reason": str(exc)}
-
     now = now_kyiv()
     valid_days = int(_terms_of(ref)["reward_valid_days"])
     granted_at = now.strftime("%Y-%m-%d %H:%M:%S")
     expires_at = (now + timedelta(days=valid_days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    if amount > 0:
+        from database_functions import bonus_ledger_db as ldb
+        from services.bonus_ops import apply_bonus_delta
+
+        result = apply_bonus_delta(
+            op_key=f"referral:friend:{friend_id}",
+            amount_uah=amount,
+            reason=ldb.REASON_REFERRAL,
+            user_id=int(referrer["user_id"]),
+            poster_client_id=int(referrer["poster_client_id"]),
+            title=ldb.REASON_TITLES_UK[ldb.REASON_REFERRAL],
+            ref_type="referral_friend",
+            ref_id=str(friend_id),
+            meta={"expires_at": expires_at, "create_lot": True},
+            expires_at=expires_at,
+            create_lot=True,
+        )
+        if result.get("status") != "ok":
+            log.warning("referral grant failed friend=%s: %s", friend_id, result)
+            return {"status": "error", "reason": result.get("error") or "bonus_failed"}
+        touch_bonus_accrual(int(referrer["user_id"]))
+        try:
+            from services.wallet_sync import sync_wallets_for_user
+
+            sync_wallets_for_user(int(referrer["user_id"]), bonus=result.get("balance_after"))
+        except Exception:
+            pass
+
     rdb.update_referral(
         friend_id,
         status=rdb.STATUS_PAID,
@@ -401,27 +415,53 @@ def expire_stale_bound() -> int:
 
 
 def expire_paid_referral_rewards() -> dict[str, Any]:
-    """Claw back referral rewards after REFERRAL_REWARD_VALID_DAYS (expires_at)."""
+    """Claw back only the unused remainder of each expired referral lot."""
+    from database_functions import bonus_ledger_db as ldb
+    from services.bonus_ops import apply_bonus_delta
+
     now_str = now_kyiv().strftime("%Y-%m-%d %H:%M:%S")
     report: dict[str, Any] = {"checked": 0, "expired": [], "errors": []}
     for ref in rdb.list_paid_expired(now_str):
         report["checked"] += 1
         friend_id = int(ref["friend_user_id"])
-        amount = float(ref.get("amount_uah") or 0)
-        clawed = 0.0
         referrer = get_user(ref["referrer_user_id"])
-        if amount > 0 and referrer and referrer.get("poster_client_id"):
-            try:
-                bal = poster.get_client_bonus_uah(int(referrer["poster_client_id"]))
-                claw = min(amount, max(0.0, bal))
-                if claw > 0:
-                    poster.change_client_bonus(int(referrer["poster_client_id"]), -claw)
-                    invalidate_client(int(referrer["poster_client_id"]))
-                    clawed = claw
-            except Exception as exc:
-                log.warning("referral reward expire clawback friend=%s: %s", friend_id, exc)
-                report["errors"].append({"friend_user_id": friend_id, "error": str(exc)})
+        clawed = 0.0
+        ledger = ldb.get_by_op_key(f"referral:friend:{friend_id}")
+        remaining = (
+            ldb.get_lot_remaining_for_ledger(int(ledger["id"]))
+            if ledger
+            else float(ref.get("amount_uah") or 0)
+        )
+        remaining = round(float(remaining or 0), 2)
+        if remaining > 0 and referrer and referrer.get("poster_client_id"):
+            result = apply_bonus_delta(
+                op_key=f"referral_expire:friend:{friend_id}",
+                amount_uah=-remaining,
+                reason=ldb.REASON_REFERRAL_EXPIRE,
+                user_id=int(referrer["user_id"]),
+                poster_client_id=int(referrer["poster_client_id"]),
+                title=ldb.REASON_TITLES_UK[ldb.REASON_REFERRAL_EXPIRE],
+                ref_type="referral_friend",
+                ref_id=str(friend_id),
+            )
+            if result.get("status") != "ok":
+                report["errors"].append(
+                    {"friend_user_id": friend_id, "error": result.get("error") or "fail"}
+                )
                 continue
+            clawed = remaining
+            if ledger:
+                ldb.close_lot_for_ledger(int(ledger["id"]))
+            try:
+                from services.wallet_sync import sync_wallets_for_user
+
+                sync_wallets_for_user(
+                    int(referrer["user_id"]), bonus=result.get("balance_after")
+                )
+            except Exception:
+                pass
+        elif ledger:
+            ldb.close_lot_for_ledger(int(ledger["id"]))
         rdb.update_referral(
             friend_id,
             status=rdb.STATUS_EXPIRED,

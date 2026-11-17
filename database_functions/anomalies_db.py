@@ -99,6 +99,25 @@ def busy_referrers(*, days: int = 7, min_count: int = 3) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def referral_friends_today(*, min_count: int = 11) -> list[dict]:
+    """Unique friends registered today (Kyiv) — anomaly from 11th friend."""
+    day = now_kyiv().strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        SELECT referrer_user_id AS user_id,
+               COUNT(DISTINCT friend_user_id) AS cnt
+        FROM referrals
+        WHERE substr(COALESCE(registered_at, created_at), 1, 10) = ?
+        GROUP BY referrer_user_id
+        HAVING COUNT(DISTINCT friend_user_id) >= ?
+        ORDER BY cnt DESC
+        LIMIT 20
+        """,
+        (day, int(min_count)),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def enrich_with_users(rows: list[dict]) -> list[dict]:
     from database_functions.client_db import get_user
 
@@ -164,8 +183,20 @@ def build_anomalies_report() -> str:
                 f"{r['cnt']}× · сума {r['total_payed']:g}"
             )
 
-    refs = enrich_with_users(busy_referrers(days=7, min_count=3))
-    lines.append("\n<b>Активні реферери (7 днів, ≥3 друзів)</b>")
+    refs_day = enrich_with_users(referral_friends_today(min_count=11))
+    lines.append("\n<b>Реферали за сьогодні (Київ, ≥11 унікальних друзів)</b>")
+    if not refs_day:
+        lines.append("· немає")
+    else:
+        for r in refs_day:
+            flag = "🚫 " if r["blocked"] else ""
+            lines.append(
+                f"· {flag}<b>{_esc(r['name'])}</b> · <code>{r['user_id']}</code> · "
+                f"друзів сьогодні {r['cnt']}"
+            )
+
+    refs = enrich_with_users(busy_referrers(days=7, min_count=11))
+    lines.append("\n<b>Активні реферери (7 днів, ≥11 друзів)</b>")
     if not refs:
         lines.append("· немає")
     else:

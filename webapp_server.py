@@ -40,7 +40,7 @@ from services import poster_media
 from services.menu_visibility import category_visible, product_visible
 from services.poster_cache import get_cached as poster_get_cached
 from services.loyalty import process_closed_transaction
-from services.charge_loyalty import build_loyalty_ui
+from services.charge_loyalty import build_loyalty_ui, get_cashback_percent_for_user
 from services.poster_client_cache import get_client_cached, invalidate_client
 from services.telegram_webapp_auth import parse_telegram_user
 import aiohttp as aiohttp_client
@@ -326,22 +326,43 @@ async def api_me(request: web.Request) -> web.Response:
     if not db_user or not db_user.get("registered"):
         return web.json_response({"error": "Не зареєстровано"}, status=404)
 
-    bonus = 0.0
+    bonus = None
+    bonus_stale = False
     birthday = db_user.get("birthday")
     card_number = db_user.get("card_number")
+    # Prefer cached balance so first open after registration is not blocked by Poster.
+    if db_user.get("last_known_bonus") is not None:
+        try:
+            bonus = float(db_user["last_known_bonus"])
+            bonus_stale = True
+        except (TypeError, ValueError):
+            bonus = None
     if db_user.get("poster_client_id"):
         try:
-            client = await asyncio.to_thread(
-                get_client_cached, int(db_user["poster_client_id"])
+            client = await asyncio.wait_for(
+                asyncio.to_thread(get_client_cached, int(db_user["poster_client_id"])),
+                timeout=4.0,
             )
             bonus = poster.from_minor(client.get("bonus"))
+            bonus_stale = False
+            from database_functions.client_db import set_last_known_bonus
+
+            set_last_known_bonus(int(tg_user["id"]), float(bonus))
             if client.get("birthday") and client["birthday"] not in ("0000-00-00", None, ""):
                 birthday = client["birthday"]
             poster_card = (client.get("card_number") or "").strip()
             if poster_card:
                 card_number = poster_card
         except Exception as exc:
-            log.warning("get_client failed: %s", exc)
+            log.warning("get_client failed/timeout: %s", exc)
+            if bonus is None and db_user.get("last_known_bonus") is not None:
+                try:
+                    bonus = float(db_user["last_known_bonus"])
+                except (TypeError, ValueError):
+                    bonus = None
+            bonus_stale = True
+    if bonus is None and not bonus_stale:
+        bonus = 0.0
 
     photo_url = None
     avatar = await _fetch_telegram_avatar(int(tg_user["id"]))
@@ -364,7 +385,7 @@ async def api_me(request: web.Request) -> web.Response:
     except Exception as exc:
         log.warning("birthday check: %s", exc)
 
-    loyalty = build_loyalty_ui(int(tg_user["id"]), bonus)
+    loyalty = build_loyalty_ui(int(tg_user["id"]), float(bonus or 0))
     phone_raw = db_user.get("user_phone") or ""
     phone_digits = ""
     phone_id_suffix = ""
@@ -402,6 +423,10 @@ async def api_me(request: web.Request) -> web.Response:
             "card_short_id": card_short_id,
             "poster_client_id": db_user.get("poster_client_id"),
             "bonus": bonus,
+            "bonus_stale": bonus_stale,
+            "bonus_unavailable": bonus is None,
+            "cashback_percent": get_cashback_percent_for_user(int(tg_user["id"])),
+            "personal_cashback_percent": db_user.get("personal_cashback_percent"),
             "bonuses_blocked": bool(int(db_user.get("bonuses_blocked") or 0)),
             "photo_url": photo_url,
             "wallet": apple_wallet.status(),
@@ -629,13 +654,38 @@ def _enrich_tx_items(tx: dict) -> list[dict]:
 
 
 def _history_bonuses(db_user: dict) -> list[dict]:
+    """Factual ops from bonus_ledger (posted). Legacy flags only if ledger empty."""
+    from database_functions import bonus_ledger_db as ldb
+
     bonuses: list[dict] = []
+    uid = db_user.get("user_id")
+    if uid:
+        for row in ldb.list_for_user(int(uid), limit=60):
+            amt = float(row.get("amount_uah") or 0)
+            if abs(amt) < 0.005:
+                continue
+            # Purchase cashback/spend already shown on receipt cards
+            if row.get("reason") in (ldb.REASON_CASHBACK, ldb.REASON_SPEND):
+                continue
+            bonuses.append(
+                {
+                    "date": (row.get("posted_at") or row.get("created_at") or "")[:19]
+                    or kyiv_now_str(),
+                    "title": ldb.history_title(row),
+                    "amount": amt,
+                    "reason": row.get("reason"),
+                }
+            )
+    if bonuses:
+        return bonuses
+    # Do not invent amounts from current settings if flags exist without ledger rows
     if db_user.get("welcome_bonus_given"):
         bonuses.append(
             {
                 "date": (db_user.get("join_date") or "")[:19] or kyiv_now_str(),
                 "title": "Вітальні Крафтики за реєстрацію",
                 "amount": get_welcome_bonus_uah(),
+                "legacy": True,
             }
         )
     if db_user.get("birthday_bonus_given"):
@@ -646,6 +696,7 @@ def _history_bonuses(db_user: dict) -> list[dict]:
                 "date": (db_user.get("last_activity") or "")[:19] or kyiv_now_str(),
                 "title": "Крафтики за день народження",
                 "amount": get_birthday_bonus_uah(),
+                "legacy": True,
             }
         )
     return bonuses

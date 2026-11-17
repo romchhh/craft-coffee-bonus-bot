@@ -30,13 +30,9 @@
       if (typeof tg.disableVerticalSwipes === "function") {
         tg.disableVerticalSwipes();
       }
-      if (mobile) {
-        if (typeof tg.requestFullscreen === "function") {
-          tg.requestFullscreen();
-        }
-        if (typeof tg.expand === "function") {
-          tg.expand();
-        }
+      // expand only — requestFullscreen on boot blanks/breaks WebView on many clients
+      if (mobile && typeof tg.expand === "function") {
+        tg.expand();
       }
     } catch (_) {}
   }
@@ -321,16 +317,27 @@
   let cachedInitData = null;
   let initDataPromise = null;
 
+  function looksLikeInitData(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return false;
+    // Classic HMAC hash or Bot API 8+ signature field
+    return s.includes("hash=") || s.includes("signature=") || s.includes("auth_date=");
+  }
+
   function readInitDataFromHash() {
     const hash = (window.location.hash || "").replace(/^#/, "").trim();
     if (!hash) return "";
-    if (hash.includes("hash=")) return hash;
+    if (looksLikeInitData(hash)) return hash;
     try {
       const params = new URLSearchParams(hash);
       const tgData = params.get("tgWebAppData");
       if (tgData) {
-        const decoded = decodeURIComponent(tgData);
-        if (decoded.includes("hash=")) return decoded;
+        // URLSearchParams already decodes; avoid double-decoding
+        if (looksLikeInitData(tgData)) return tgData;
+        try {
+          const decoded = decodeURIComponent(tgData);
+          if (looksLikeInitData(decoded)) return decoded;
+        } catch (_) {}
       }
     } catch (_) {}
     return "";
@@ -339,14 +346,14 @@
   function readInitDataRaw() {
     if (tg) {
       const direct = (tg.initData || "").trim();
-      if (direct && direct.includes("hash=")) return direct;
+      if (looksLikeInitData(direct)) return direct;
     }
     const fromHash = readInitDataFromHash();
-    if (fromHash) return fromHash;
+    if (looksLikeInitData(fromHash)) return fromHash;
     try {
       const params = new URLSearchParams(window.location.search || "");
       const fromQuery = (params.get("tgWebAppData") || params.get("initData") || "").trim();
-      if (fromQuery && fromQuery.includes("hash=")) return fromQuery;
+      if (looksLikeInitData(fromQuery)) return fromQuery;
     } catch (_) {}
     return tg ? (tg.initData || "").trim() : "";
   }
@@ -368,19 +375,22 @@
     if (!force && initDataPromise) return initDataPromise;
 
     initDataPromise = (async () => {
-      tg.ready();
+      try {
+        tg.ready();
+      } catch (_) {}
       if (isMobileWebApp()) {
         try {
           tg.expand();
         } catch (_) {}
       }
-      for (let i = 0; i < 320; i++) {
+      // ~2.5s max — do not block first paint for 12s on slow WebViews
+      for (let i = 0; i < 50; i++) {
         const raw = readInitDataRaw();
-        if (raw && raw.includes("hash=")) {
+        if (looksLikeInitData(raw)) {
           cachedInitData = raw;
           return raw;
         }
-        await sleep(40);
+        await sleep(50);
       }
       const fallback = readInitDataRaw();
       if (fallback) cachedInitData = fallback;
@@ -826,10 +836,14 @@
 
       <div class="panel panel-balance">
         <div class="balance-label">${icon("gift")} Доступні Крафтики</div>
-        <div class="big">${fmtBonus(me.bonus)}</div>
+        <div class="big">${me.bonus_unavailable && me.bonus == null ? "—" : fmtBonus(me.bonus)}</div>
         <div class="balance-note">${me.bonuses_blocked
           ? "Нарахування тимчасово призупинено — звернись у підтримку"
-          : "1 Крафтик = 1 грн знижки"}</div>
+          : me.bonus_unavailable && me.bonus == null
+            ? "Баланс тимчасово недоступний"
+            : me.bonus_stale
+              ? "Останній підтверджений баланс (касу тимчасово не вдалося оновити)"
+              : "1 Крафтик = 1 грн знижки"}</div>
       </div>
 
       ${renderWalletButtons(me)}
@@ -1682,9 +1696,10 @@
 
   if (tg) {
     const kickInit = () => {
-      resetInitDataCache();
+      // Do not wipe a good session on every viewport tick (expand fires often).
+      if (state.me || cachedInitData) return;
       resolveInitData(true).then((raw) => {
-        if (raw && raw.includes("hash=") && !state.me && appReady) {
+        if (looksLikeInitData(raw) && !state.me && appReady) {
           loadAll();
         }
       });
@@ -1692,9 +1707,8 @@
     try {
       tg.onEvent("viewportChanged", () => {
         applyTelegramChrome();
-        kickInit();
       });
-      tg.onEvent("themeChanged", kickInit);
+      tg.onEvent("themeChanged", applyTelegramChrome);
       tg.onEvent("webAppReady", kickInit);
     } catch (_) {}
     document.addEventListener("visibilitychange", () => {
@@ -1702,8 +1716,10 @@
       const now = Date.now();
       if (now - lastVisibilityReload < 2500) return;
       lastVisibilityReload = now;
-      resetInitDataCache();
-      if (!state.me) loadAll();
+      if (!state.me) {
+        resetInitDataCache();
+        loadAll();
+      }
     });
   }
   boot();

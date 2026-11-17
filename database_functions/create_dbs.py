@@ -8,6 +8,9 @@ from database_functions.referrals_db import create_referrals_table
 from database_functions.promo_menu_db import create_promo_menu_table
 from database_functions.spots_db import create_spots_table
 from database_functions.wallet_passes_db import create_wallet_passes_tables
+from database_functions.bonus_ledger_db import create_bonus_ledger_tables
+from database_functions.mailing_jobs_db import create_mailing_jobs_tables
+from database_functions.anomaly_alerts_db import create_anomaly_alerts_tables
 from config import administrators
 
 
@@ -22,6 +25,9 @@ def create_dbs():
     create_table_links()
     create_admins_table()
     create_wallet_passes_tables()
+    create_bonus_ledger_tables()
+    create_mailing_jobs_tables()
+    create_anomaly_alerts_tables()
 
     if administrators:
         superadmin_id = administrators[0]

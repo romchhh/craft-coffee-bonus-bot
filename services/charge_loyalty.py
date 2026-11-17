@@ -37,10 +37,21 @@ def tier_to_percent(tier: int) -> float:
 
 
 def get_cashback_percent_for_user(telegram_user_id: int) -> float:
+    """Effective cashback: max(personal override, Charge tier). Charge level unchanged."""
+    from database_functions.client_db import get_user
+
     row = get_loyalty_row(telegram_user_id)
-    if not row:
-        return float(MIN_TIER)
-    return tier_to_percent(row["loyalty_tier"])
+    tier_pct = float(MIN_TIER) if not row else tier_to_percent(row["loyalty_tier"])
+    user = get_user(telegram_user_id)
+    personal = None
+    if user and user.get("personal_cashback_percent") is not None:
+        try:
+            personal = float(user["personal_cashback_percent"])
+        except (TypeError, ValueError):
+            personal = None
+    if personal is not None and personal > 0:
+        return max(tier_pct, personal)
+    return tier_pct
 
 
 def parse_purchase_datetime(raw: str | None) -> datetime | None:
@@ -109,7 +120,17 @@ def apply_idle_penalties(telegram_user_id: int) -> None:
                 try:
                     bal = poster.get_client_bonus_uah(cid)
                     if bal > 0:
-                        poster.change_client_bonus(cid, -bal)
+                        from database_functions import bonus_ledger_db as ldb
+                        from services.bonus_ops import apply_bonus_delta
+
+                        apply_bonus_delta(
+                            op_key=f"burn90:user:{telegram_user_id}:{now.date().isoformat()}",
+                            amount_uah=-bal,
+                            reason=ldb.REASON_BURN_90D,
+                            user_id=telegram_user_id,
+                            poster_client_id=int(cid),
+                            title=ldb.REASON_TITLES_UK[ldb.REASON_BURN_90D],
+                        )
                 except Exception as exc:
                     log.warning("bonus burn failed user=%s: %s", telegram_user_id, exc)
             updates["bonus_burned_at"] = kyiv_now_str()
@@ -181,7 +202,16 @@ def build_loyalty_ui(telegram_user_id: int, bonus_uah: float) -> dict:
     tier = tier_from_charges(charge)
     if int(row.get("loyalty_tier") or 0) != tier:
         save_loyalty_row(telegram_user_id, loyalty_tier=tier)
-    percent = tier_to_percent(tier)
+    from database_functions.client_db import get_user
+
+    tier_pct = tier_to_percent(tier)
+    percent = get_cashback_percent_for_user(telegram_user_id)
+    user_row = get_user(telegram_user_id) or {}
+    personal_pct = user_row.get("personal_cashback_percent")
+    try:
+        personal_pct = float(personal_pct) if personal_pct is not None else None
+    except (TypeError, ValueError):
+        personal_pct = None
     next_tier = min(tier + 1, MAX_TIER)
     next_percent = tier_to_percent(next_tier) if tier < MAX_TIER else percent
     goal = float(charges_to_reach(next_tier)) if tier < MAX_TIER else float(charges_to_reach(MAX_TIER))
@@ -216,6 +246,8 @@ def build_loyalty_ui(telegram_user_id: int, bonus_uah: float) -> dict:
 
     return {
         "cashback_percent": percent,
+        "tier_percent": tier_pct,
+        "personal_cashback_percent": personal_pct,
         "next_percent": next_percent,
         "charge": round(charge, 1),
         "charge_goal": int(goal) if tier < MAX_TIER else int(charges_to_reach(MAX_TIER)),

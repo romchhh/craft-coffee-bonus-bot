@@ -147,12 +147,30 @@ def get_socials_keyboard():
     return get_about_keyboard() or InlineKeyboardMarkup(inline_keyboard=[])
 
 
-async def set_webapp_menu(bot):
-    """Left chat menu button opens the Mini App."""
+def _webapp_menu_button() -> MenuButtonWebApp | MenuButtonCommands:
     if WEBAPP_URL:
         url = WEBAPP_URL.rstrip("/")
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Картка", web_app=WebAppInfo(url=url))
-        )
-    else:
-        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        return MenuButtonWebApp(text="Картка", web_app=WebAppInfo(url=url))
+    return MenuButtonCommands()
+
+
+async def set_webapp_menu(bot):
+    """Default left menu button opens the Mini App (registered clients)."""
+    await bot.set_chat_menu_button(menu_button=_webapp_menu_button())
+
+
+async def set_chat_webapp_menu(bot, chat_id: int, *, registered: bool) -> None:
+    """Per-chat menu: WebApp only after registration (avoids broken open mid-signup)."""
+    try:
+        if registered and WEBAPP_URL:
+            await bot.set_chat_menu_button(
+                chat_id=chat_id,
+                menu_button=_webapp_menu_button(),
+            )
+        else:
+            await bot.set_chat_menu_button(
+                chat_id=chat_id,
+                menu_button=MenuButtonCommands(),
+            )
+    except Exception:
+        pass

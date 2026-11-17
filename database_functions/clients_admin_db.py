@@ -47,6 +47,65 @@ def count_registered() -> int:
     return int(row[0] or 0)
 
 
+def get_client_admin_details(user_id: int) -> dict[str, Any]:
+    """Local purchase / venue / bonus stats for an admin client card."""
+    uid = int(user_id)
+    row = _conn().execute(
+        """
+        SELECT
+            COALESCE(SUM(payed_sum_uah), 0) AS spent_uah,
+            COALESCE(SUM(bonus_uah), 0) AS bonus_earned_uah,
+            COALESCE(SUM(bonus_spent_uah), 0) AS bonus_spent_uah,
+            COUNT(*) AS purchases_count,
+            MAX(COALESCE(NULLIF(date_close, ''), processed_at)) AS last_purchase_at,
+            (
+                SELECT pt.spot_name FROM processed_transactions pt
+                WHERE pt.telegram_user_id = ?
+                  AND IFNULL(pt.spot_name, '') != ''
+                GROUP BY pt.spot_name
+                ORDER BY COUNT(*) DESC
+                LIMIT 1
+            ) AS top_spot,
+            (
+                SELECT GROUP_CONCAT(DISTINCT pt.spot_name)
+                FROM processed_transactions pt
+                WHERE pt.telegram_user_id = ?
+                  AND IFNULL(pt.spot_name, '') != ''
+            ) AS spots_visited
+        FROM processed_transactions
+        WHERE telegram_user_id = ?
+        """,
+        (uid, uid, uid),
+    ).fetchone()
+    d = dict(row) if row else {}
+    return {
+        "spent_uah": float(d.get("spent_uah") or 0),
+        "bonus_earned_uah": float(d.get("bonus_earned_uah") or 0),
+        "bonus_spent_uah": float(d.get("bonus_spent_uah") or 0),
+        "purchases_count": int(d.get("purchases_count") or 0),
+        "last_purchase_at": d.get("last_purchase_at"),
+        "top_spot": d.get("top_spot") or "",
+        "spots_visited": d.get("spots_visited") or "",
+    }
+
+
+def enrich_clients_list_metrics(users: list[dict]) -> list[dict]:
+    """Attach spent / bonus / age for search & short lists (batch, local DB)."""
+    if not users:
+        return []
+    today = date.today()
+    out: list[dict] = []
+    for u in users:
+        d = dict(u)
+        uid = int(d["user_id"])
+        stats = get_client_admin_details(uid)
+        d.update(stats)
+        if d.get("age") is None:
+            d["age"] = _age_years(d.get("birthday"), today)
+        out.append(d)
+    return out
+
+
 def list_clients_sorted(
     sort: str = "join_desc",
     *,
@@ -265,6 +324,7 @@ def iter_clients_stats_for_export() -> list[dict[str, Any]]:
             COALESCE(u.bonuses_blocked, 0) AS bonuses_blocked,
             COALESCE(u.welcome_bonus_given, 0) AS welcome_bonus_given,
             COALESCE(u.birthday_bonus_given, 0) AS birthday_bonus_given,
+            u.last_known_bonus,
             u.referred_by_user_id,
             COALESCE((
                 SELECT SUM(pt.payed_sum_uah) FROM processed_transactions pt
@@ -303,7 +363,8 @@ def iter_clients_stats_for_export() -> list[dict[str, Any]]:
             ) AS invited_paid,
             ref_u.display_name AS referrer_name,
             ref_u.user_first_name AS referrer_first_name,
-            ref_u.user_name AS referrer_username
+            ref_u.user_name AS referrer_username,
+            ref_u.user_phone AS referrer_phone
         FROM users u
         LEFT JOIN users ref_u ON ref_u.user_id = u.referred_by_user_id
         WHERE u.registered = 1
