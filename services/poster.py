@@ -176,28 +176,57 @@ def assign_client_group(client_id: int | str) -> None:
     update_client(client_id, client_groups_id_client=client_group_id())
 
 
-def migrate_registered_bot_clients_to_group() -> tuple[int, int]:
-    """Move all bot clients into the target group. Returns (ok, failed)."""
+def migrate_registered_bot_clients_to_group(*, force: bool = False) -> tuple[int, int, int]:
+    """Move bot clients into the target group. Returns (ok, skipped, failed).
+
+    Skips a full re-run when already completed for the current group id
+    (flag in settings). New registrations already get the group on create.
+    """
     from database_functions.client_db import registered_poster_client_ids
+    from database_functions.settings_db import get_setting, set_setting
 
     gid = client_group_id()
+    flag_key = "poster_group_migrated_gid"
+    if not force and get_setting(flag_key, "") == str(gid):
+        log.info(
+            "Poster group migrate skipped — already done for «%s» id=%s",
+            POSTER_CLIENT_GROUP_NAME,
+            gid,
+        )
+        return 0, 0, 0
+
     ok = 0
+    skipped = 0
     failed = 0
     for cid in sorted(registered_poster_client_ids()):
         try:
+            client = get_client(cid, timeout=4.0) or {}
+            current = client.get("client_groups_id_client")
+            try:
+                if int(current) == int(gid):
+                    skipped += 1
+                    continue
+            except (TypeError, ValueError):
+                pass
             update_client(cid, client_groups_id_client=gid)
             ok += 1
         except PosterError as exc:
             failed += 1
             log.warning("client_groups migrate client_id=%s: %s", cid, exc)
+        except Exception as exc:
+            failed += 1
+            log.warning("client_groups migrate client_id=%s: %s", cid, exc)
+    if failed == 0:
+        set_setting(flag_key, str(gid))
     log.info(
-        "Poster group migrate «%s» (id=%s): ok=%s failed=%s",
+        "Poster group migrate «%s» (id=%s): ok=%s skipped=%s failed=%s",
         POSTER_CLIENT_GROUP_NAME,
         gid,
         ok,
+        skipped,
         failed,
     )
-    return ok, failed
+    return ok, skipped, failed
 
 
 def media_url(path: str | None) -> str | None:

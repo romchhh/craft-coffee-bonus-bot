@@ -709,12 +709,25 @@ async def on_startup(router):
 
     me = await bot.get_me()
     create_dbs()
+    # Fast path only: resolve group id. Full client migrate is background —
+    # awaiting it on startup was blocking the bot for 10+ minutes.
     if POSTER_TOKEN:
         try:
             await asyncio.to_thread(poster.init_client_group)
-            await asyncio.to_thread(poster.migrate_registered_bot_clients_to_group)
         except Exception:
-            log.exception("Poster client group sync on startup")
+            log.exception("Poster client group resolve on startup")
+
+        async def _bg_group_migrate() -> None:
+            try:
+                report = await asyncio.to_thread(
+                    poster.migrate_registered_bot_clients_to_group
+                )
+                log.info("Poster group migrate (bg): %s", report)
+            except Exception:
+                log.exception("Poster client group migrate (bg)")
+
+        asyncio.create_task(_bg_group_migrate(), name="poster_group_migrate")
+
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
     start_backup_cron(bot)
@@ -722,7 +735,7 @@ async def on_startup(router):
     try:
         from services.bonus_ops import resume_incomplete_ops
 
-        resume_incomplete_ops(limit=50)
+        await asyncio.to_thread(lambda: resume_incomplete_ops(limit=50))
     except Exception:
         log.exception("bonus ops resume on startup")
     try:

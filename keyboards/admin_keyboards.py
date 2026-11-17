@@ -7,15 +7,105 @@ from database_functions.links_db import get_all_links
 def admin_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="Розсилка"), KeyboardButton(text="Статистика")],
-        [KeyboardButton(text="👤 Клієнти"), KeyboardButton(text="👥 Реферали")],
-        [KeyboardButton(text="Адміністратори"), KeyboardButton(text="Посилання")],
-        [KeyboardButton(text="🎁 Лояльність"), KeyboardButton(text="💬 Контакт підтримки")],
-        [KeyboardButton(text="🍽 Меню"), KeyboardButton(text="📍 Точки")],
-        [KeyboardButton(text="Головне меню")],
+        [KeyboardButton(text="👤 Клієнти"), KeyboardButton(text="📒 Журнал Крафтиків")],
+        [KeyboardButton(text="👥 Реферали"), KeyboardButton(text="Адміністратори")],
+        [KeyboardButton(text="Посилання"), KeyboardButton(text="🎁 Лояльність")],
+        [KeyboardButton(text="💬 Контакт підтримки"), KeyboardButton(text="🍽 Меню")],
+        [KeyboardButton(text="📍 Точки"), KeyboardButton(text="Головне меню")],
     ]
 
     keyboard = ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
     return keyboard
+
+
+def get_ledger_hub_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Останні операції", callback_data="ledger_list:0")],
+            [InlineKeyboardButton(text="🎁 Лише ручні (адмін)", callback_data="ledger_admin:0")],
+            [InlineKeyboardButton(text="⚠️ Незавершені / помилки", callback_data="ledger_bad:0")],
+            [InlineKeyboardButton(text="🏷 Фільтр за типом", callback_data="ledger_reasons")],
+            [InlineKeyboardButton(text="📊 Excel журналу", callback_data="ledger_export")],
+        ]
+    )
+
+
+def get_ledger_list_keyboard(
+    *,
+    offset: int,
+    total: int,
+    page_size: int,
+    prefix: str = "ledger_list",
+) -> InlineKeyboardMarkup:
+    """prefix examples: ledger_list | ledger_admin | ledger_bad | ledger_reason:cashback"""
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if offset > 0:
+        prev_off = max(0, offset - page_size)
+        nav.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=f"{prefix}:{prev_off}",
+            )
+        )
+    page = (offset // page_size) + 1
+    pages = max(1, (total + page_size - 1) // page_size)
+    nav.append(
+        InlineKeyboardButton(text=f"{page}/{pages}", callback_data="ledger_noop")
+    )
+    if offset + page_size < total:
+        nav.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=f"{prefix}:{offset + page_size}",
+            )
+        )
+    if nav:
+        rows.append(nav)
+    rows.append(
+        [InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_ledger_reasons_keyboard() -> InlineKeyboardMarkup:
+    from database_functions.bonus_ledger_db import ADMIN_FILTER_REASONS, REASON_TITLES_UK
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for reason in ADMIN_FILTER_REASONS:
+        title = REASON_TITLES_UK.get(reason, reason)
+        if len(title) > 40:
+            title = title[:39] + "…"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=title,
+                    callback_data=f"ledger_reason:{reason}:0",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="ledger_hub")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_ledger_op_keyboard(op_id: int, user_id: int | None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if user_id:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="👤 Картка клієнта",
+                    callback_data=f"client_view:{user_id}",
+                ),
+                InlineKeyboardButton(
+                    text="📒 Операції клієнта",
+                    callback_data=f"ledger_user:{user_id}:0",
+                ),
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ До журналу", callback_data="ledger_list:0")])
+    rows.append([InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_clients_hub_keyboard() -> InlineKeyboardMarkup:
@@ -60,10 +150,13 @@ def get_client_card_keyboard(
     rows.extend(
         [
             [
-                InlineKeyboardButton(text="📜 Історія", callback_data=f"client_hist:{user_id}"),
-                InlineKeyboardButton(text="♻️ Баланс Poster", callback_data=f"client_bal:{user_id}"),
+                InlineKeyboardButton(text="📜 Чеки", callback_data=f"client_hist:{user_id}"),
+                InlineKeyboardButton(text="📒 Операції", callback_data=f"ledger_user:{user_id}:0"),
             ],
-            [InlineKeyboardButton(text="🔄 Оновити картку", callback_data=f"client_view:{user_id}")],
+            [
+                InlineKeyboardButton(text="♻️ Баланс Poster", callback_data=f"client_bal:{user_id}"),
+                InlineKeyboardButton(text="🔄 Оновити", callback_data=f"client_view:{user_id}"),
+            ],
             [InlineKeyboardButton(text="👥 Реферали", callback_data=f"client_refs:{user_id}")],
             [
                 InlineKeyboardButton(text="🎁 Подарувати", callback_data=f"client_gift:{user_id}"),

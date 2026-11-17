@@ -18,10 +18,11 @@ dp = Dispatcher(storage=storage)
 _web_runner: dict = {}
 
 
-async def main() -> None:
+def _wire_routers() -> None:
     from handlers.admin_handlers.admin_handlers import router as admin_router
     from handlers.admin_handlers.admin_management_handlers import router as admin_management_router
     from handlers.admin_handlers.clients_handlers import router as clients_router
+    from handlers.admin_handlers.ledger_handlers import router as ledger_router
     from handlers.admin_handlers.links_handlers import router as links_router
     from handlers.admin_handlers.mailing_handlers import router as mailing_router
     from handlers.admin_handlers.promo_menu_handlers import router as promo_menu_router
@@ -33,6 +34,7 @@ async def main() -> None:
     dp.include_router(client_router)
     dp.include_router(admin_router)
     dp.include_router(clients_router)
+    dp.include_router(ledger_router)
     dp.include_router(mailing_router)
     dp.include_router(links_router)
     dp.include_router(admin_management_router)
@@ -50,18 +52,16 @@ async def main() -> None:
     dp.startup.register(_startup)
     dp.shutdown.register(_shutdown)
 
+
+async def main() -> None:
+    _wire_routers()
     await dp.start_polling(bot, skip_updates=True)
 
 
 if __name__ == "__main__":
-    while True:
-        try:
-            asyncio.run(main())
-        except KeyboardInterrupt:
-            break
-        except Exception:
-            logging.exception("Bot process crashed; restarting in 5s")
-            try:
-                asyncio.run(asyncio.sleep(5))
-            except Exception:
-                pass
+    # No in-process restart loop — systemd restarts a clean process.
+    # The old while-True loop re-attached routers → RuntimeError.
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
