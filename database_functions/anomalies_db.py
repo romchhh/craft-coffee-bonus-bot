@@ -227,8 +227,8 @@ def build_anomalies_report() -> str:
             )
 
     lines.append(
-        "\n<i>Натисни імʼя — профіль у Telegram. "
-        "Або «👤 Клієнти» за ID — картка / блок Крафтиків.</i>"
+        "\n<i>Імʼя — профіль у Telegram. "
+        "Кнопки нижче — повна картка клієнта з бази бота.</i>"
     )
     text = "\n".join(lines)
     if len(text) > 3900:

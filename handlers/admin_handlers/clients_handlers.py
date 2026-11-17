@@ -74,6 +74,7 @@ def _back_label_for_browse(browse: dict | None) -> str:
         "recent": "◀️ До останніх",
         "blocked": "◀️ До заблокованих",
         "refs": "◀️ До рефералів",
+        "anomaly": "🏠 Меню клієнтів",
     }.get(mode, "◀️ Назад")
 
 
@@ -806,22 +807,64 @@ async def clients_recent(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data == "clients_anomalies")
 async def clients_anomalies(callback: types.CallbackQuery, state: FSMContext):
-    from database_functions.anomalies_db import build_anomalies_report
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from database_functions.anomalies_db import (
+        build_anomalies_report,
+        busy_referrers,
+        enrich_with_users,
+        frequent_cashback,
+        high_cashback_week,
+        micro_checks,
+        referral_friends_today,
+    )
 
     await callback.answer("Аналізую…")
     text = await asyncio.to_thread(build_anomalies_report)
+
+    # Collect unique clients from current anomaly slices for quick open
+    def _collect_ids() -> list[tuple[int, str]]:
+        seen: set[int] = set()
+        out: list[tuple[int, str]] = []
+        buckets = [
+            enrich_with_users(frequent_cashback(hours=24, min_count=4)),
+            enrich_with_users(high_cashback_week(min_uah=80)),
+            enrich_with_users(micro_checks(hours=24, max_payed=55, min_count=5)),
+            enrich_with_users(referral_friends_today(min_count=11)),
+            enrich_with_users(busy_referrers(days=7, min_count=11)),
+        ]
+        for bucket in buckets:
+            for r in bucket:
+                uid = int(r["user_id"])
+                if uid in seen:
+                    continue
+                seen.add(uid)
+                name = (r.get("name") or str(uid)).strip() or str(uid)
+                if len(name) > 28:
+                    name = name[:27] + "…"
+                out.append((uid, name))
+                if len(out) >= 12:
+                    return out
+        return out
+
+    clients = await asyncio.to_thread(_collect_ids)
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=f"➡️ {name}",
+                callback_data=f"anomaly_client:{uid}",
+            )
+        ]
+        for uid, name in clients
+    ]
+    rows.append(
+        [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")]
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=get_clients_hub_keyboard(),
-        )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=get_clients_hub_keyboard(),
-        )
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_blocked")
@@ -865,6 +908,34 @@ async def clients_blocked_list(callback: types.CallbackQuery, state: FSMContext)
 async def client_view(callback: types.CallbackQuery, state: FSMContext):
     uid = int((callback.data or "").split(":", 1)[-1])
     await _show_client_by_id(callback, state, uid, refresh_balance=False)
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("anomaly_client:"))
+async def anomaly_open_client(callback: types.CallbackQuery, state: FSMContext):
+    """From anomaly alert: open full client card as a new message (keep the alert)."""
+    from database_functions.client_db import get_user
+
+    try:
+        uid = int((callback.data or "").split(":", 1)[-1])
+    except ValueError:
+        await callback.answer("Невірний клієнт", show_alert=True)
+        return
+    user = get_user(uid)
+    if not user or not user.get("registered"):
+        await callback.answer("Клієнта не знайдено в базі бота", show_alert=True)
+        return
+    await callback.answer()
+    browse = await _set_browse(
+        state,
+        mode="anomaly",
+        ids=[uid],
+        pos=0,
+        offset=0,
+        total=1,
+        query=None,
+    )
+    text, kb = await _build_client_card(user, browse=browse, refresh_balance=False)
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_bal:"))

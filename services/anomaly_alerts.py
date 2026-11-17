@@ -47,8 +47,8 @@ def _client_card_keyboard(user_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="👤 Картка в адмінці",
-                    callback_data=f"client_view:{int(user_id)}",
+                    text="➡️ Перейти до клієнта",
+                    callback_data=f"anomaly_client:{int(user_id)}",
                 )
             ]
         ]
@@ -77,7 +77,7 @@ async def notify_anomaly(
         f"Тип: <b>{anomaly_type}</b>\n"
         f"Час: <code>{now_kyiv().strftime('%d.%m.%Y %H:%M')}</code> (Київ)\n"
         f"{summary}\n\n"
-        "<i>Деталі — в адмінці «👤 Клієнти» → аномалії.</i>"
+        "<i>Кнопка нижче відкриє повну картку клієнта з бази бота.</i>"
     )
     kb = None
     try:
