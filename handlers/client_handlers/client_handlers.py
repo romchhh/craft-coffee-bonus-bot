@@ -704,6 +704,7 @@ async def on_startup(router):
 
     from config import POSTER_TOKEN
     from services.backup_cron import start_backup_cron
+    from services.balance_sync import start_balance_sync
     from services.loyalty_cron import start_loyalty_cron
 
     me = await bot.get_me()
@@ -717,6 +718,7 @@ async def on_startup(router):
     await set_webapp_menu(bot)
     start_loyalty_cron(bot)
     start_backup_cron(bot)
+    start_balance_sync()
     try:
         from services.bonus_ops import resume_incomplete_ops
 
@@ -767,9 +769,11 @@ async def on_startup(router):
 
 async def on_shutdown(router):
     from services.backup_cron import stop_backup_cron
+    from services.balance_sync import stop_balance_sync
     from services.loyalty_cron import stop_loyalty_cron
 
     await stop_loyalty_cron()
     await stop_backup_cron()
+    await stop_balance_sync()
     me = await bot.get_me()
     log.info("Bot @%s stopped", me.username)

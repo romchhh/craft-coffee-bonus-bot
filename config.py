@@ -101,6 +101,12 @@ LOYALTY_CRON_ENABLED = getenv("LOYALTY_CRON_ENABLED", "1") == "1"
 LOYALTY_CRON_INTERVAL_SEC = int(getenv("LOYALTY_CRON_INTERVAL_SEC", "60"))
 LOYALTY_CRON_LOOKBACK_DAYS = int(getenv("LOYALTY_CRON_LOOKBACK_DAYS", "2"))
 
+# Background Poster → last_known_bonus (stale cards, non-blocking)
+BALANCE_SYNC_ENABLED = getenv("BALANCE_SYNC_ENABLED", "1") == "1"
+BALANCE_SYNC_INTERVAL_SEC = int(getenv("BALANCE_SYNC_INTERVAL_SEC", "300") or "300")
+BALANCE_SYNC_STALE_HOURS = float(getenv("BALANCE_SYNC_STALE_HOURS", "6") or "6")
+BALANCE_SYNC_BATCH = int(getenv("BALANCE_SYNC_BATCH", "25") or "25")
+
 # Daily SQLite backup → admin Telegram DMs (Europe/Kyiv clock)
 BACKUP_ENABLED = getenv("BACKUP_ENABLED", "1") == "1"
 BACKUP_HOUR_KYIV = int(getenv("BACKUP_HOUR_KYIV", "3") or "3")

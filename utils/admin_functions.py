@@ -403,8 +403,8 @@ def format_statistics_message(*, refresh_poster: bool = False) -> str:
             f"({bal['clients_with_bonus_balance']} клієнтів з відомим балансом"
             + (f", без даних: {unknown}" if unknown else "")
             + ")\n"
-            f"   <i>З останніх відомих у боті — без опитування Poster. "
-            f"Кнопка нижче — рідке живе оновлення.</i>"
+            f"   <i>З останніх відомих у боті. Фоновний sync оновлює Poster сам; "
+            f"кнопка нижче — повне оновлення вручну (теж у фоні).</i>"
         )
 
     language_emoji = {

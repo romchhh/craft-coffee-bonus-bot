@@ -99,26 +99,30 @@ async def statistic_handler(message: types.Message):
 
 @router.callback_query(IsAdmin(), F.data == "stats_refresh_poster")
 async def stats_refresh_poster(callback: types.CallbackQuery):
-    await callback.answer("Опитую Poster по всіх картках… це може зайняти хвилину")
-    wait = await callback.message.answer(
-        "⏳ Живе оновлення балансів з Poster…\nАдмінка тим часом лишається живою."
-    )
-    try:
-        text = await asyncio.to_thread(
-            lambda: format_statistics_message(refresh_poster=True)
-        )
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=get_export_database_keyboard(),
-        )
-    except Exception as exc:
-        await callback.message.answer(f"⚠️ Не вдалося оновити з Poster: {exc}")
-    finally:
+    from services.balance_sync import run_full_sync
+
+    await callback.answer("Запущено у фоні")
+    chat_id = callback.message.chat.id
+
+    async def _notify(text: str) -> None:
+        await bot.send_message(chat_id, text, parse_mode="HTML")
+
+    async def _job() -> None:
+        report = await run_full_sync(notify=_notify)
+        if report.get("status") != "ok":
+            return
         try:
-            await wait.delete()
-        except Exception:
-            pass
+            text = await asyncio.to_thread(format_statistics_message)
+            await bot.send_message(
+                chat_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=get_export_database_keyboard(),
+            )
+        except Exception as exc:
+            await bot.send_message(chat_id, f"⚠️ Статистику після синку не зібрав: {exc}")
+
+    asyncio.create_task(_job(), name="stats_balance_sync")
 
 
 @router.message(IsAdmin(), F.text == "🎁 Лояльність")

@@ -869,8 +869,61 @@ async def client_view(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_bal:"))
 async def client_balance_poster(callback: types.CallbackQuery, state: FSMContext):
+    """Kick Poster refresh in background; keep showing local card meanwhile."""
+    from database_functions.client_db import get_user
+    from services.balance_sync import refresh_user_balance
+
     uid = int((callback.data or "").split(":", 1)[-1])
-    await _show_client_by_id(callback, state, uid, refresh_balance=True)
+    # Instant local card; Poster goes to background task
+    await _show_client_by_id(
+        callback,
+        state,
+        uid,
+        refresh_balance=False,
+        answer_text="Оновлюю баланс у фоні…",
+    )
+
+    data = await state.get_data()
+    browse = dict(data.get("clients_browse") or {})
+    chat_id = callback.message.chat.id
+    msg_id = callback.message.message_id
+    bot = callback.message.bot
+
+    async def _bg() -> None:
+        try:
+            bal = await refresh_user_balance(uid)
+            user = get_user(uid)
+            if not user:
+                return
+            text, kb = await _build_client_card(
+                user, browse=browse, refresh_balance=False
+            )
+            note = (
+                f"✅ Баланс з Poster: <b>{_uah(bal)}</b>"
+                if bal is not None
+                else "⚠️ Не вдалося оновити баланс з Poster"
+            )
+            try:
+                await bot.edit_message_text(
+                    text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                )
+            except Exception:
+                await bot.send_message(
+                    chat_id, text, parse_mode="HTML", reply_markup=kb
+                )
+            await bot.send_message(chat_id, note, parse_mode="HTML")
+        except Exception as exc:
+            log.warning("bg balance refresh user=%s: %s", uid, exc)
+            try:
+                await bot.send_message(chat_id, f"⚠️ Оновлення балансу: {_esc(exc)}")
+            except Exception:
+                pass
+
+    asyncio.create_task(_bg(), name=f"client_bal_{uid}")
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_back")
