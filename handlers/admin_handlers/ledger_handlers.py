@@ -58,59 +58,163 @@ def _hub_text_sync() -> str:
     )
 
 
-def _format_op_line(row: dict) -> str:
+def _client_label(uid: object, users: dict[int, dict] | None = None) -> str:
+    from database_functions.anomalies_db import user_name_link
+
+    if uid is None:
+        return "—"
+    try:
+        iuid = int(uid)
+    except (TypeError, ValueError):
+        return _esc(uid)
+    u = (users or {}).get(iuid) or {}
+    name = (
+        u.get("display_name")
+        or u.get("user_first_name")
+        or (f"@{u['user_name']}" if u.get("user_name") else None)
+        or str(iuid)
+    )
+    return user_name_link(iuid, name)
+
+
+def _purchase_line(row: dict, purchases: dict[str, dict] | None = None) -> str:
+    """One-line purchase context for cashback/spend ops."""
+    from database_functions.bonus_ledger_db import (
+        REASON_CASHBACK,
+        REASON_SPEND,
+        purchase_items_summary,
+    )
+
+    reason = str(row.get("reason") or "")
+    if reason not in (REASON_CASHBACK, REASON_SPEND):
+        return ""
+    tid = str(row.get("ref_id") or "")
+    if not tid:
+        return ""
+    tx = (purchases or {}).get(tid)
+    if not tx:
+        return f"  чек <code>{_esc(tid)}</code>"
+    items = purchase_items_summary(tx.get("products_json"), max_items=4)
+    spot = (tx.get("spot_name") or "").strip()
+    try:
+        payed = float(tx.get("payed_sum_uah") or 0)
+    except (TypeError, ValueError):
+        payed = 0.0
+    bits: list[str] = []
+    if items:
+        bits.append(_esc(items))
+    if spot:
+        bits.append(_esc(spot))
+    if payed:
+        bits.append(f"{payed:g} грн")
+    if not bits:
+        return f"  чек <code>{_esc(tid)}</code>"
+    return "  🛒 " + " · ".join(bits)
+
+
+def _format_op_line(
+    row: dict,
+    *,
+    users: dict[int, dict] | None = None,
+    purchases: dict[str, dict] | None = None,
+) -> str:
     from database_functions.bonus_ledger_db import STATUS_LABELS_UK, history_title
 
     amt = float(row.get("amount_uah") or 0)
     when = format_dt_ua(row.get("posted_at") or row.get("created_at"))
     st = STATUS_LABELS_UK.get(str(row.get("status") or ""), row.get("status") or "?")
-    uid = row.get("user_id") or "—"
     title = history_title(row)
-    if len(title) > 42:
-        title = title[:41] + "…"
-    return (
+    if len(title) > 36:
+        title = title[:35] + "…"
+    lines = [
         f"• <code>#{row.get('id')}</code> {_esc(when)} · "
-        f"<b>{_uah(amt)}</b> · {_esc(title)}\n"
-        f"  клієнт <code>{uid}</code> · {_esc(st)}"
-    )
+        f"<b>{_uah(amt)}</b> · {_esc(title)}",
+        f"  {_client_label(row.get('user_id'), users)} · {_esc(st)}",
+    ]
+    buy = _purchase_line(row, purchases)
+    if buy:
+        lines.append(buy)
+    return "\n".join(lines)
 
 
 def _format_op_detail(row: dict) -> str:
-    from database_functions.bonus_ledger_db import STATUS_LABELS_UK, history_title
-    from database_functions.client_db import get_user
+    from database_functions.bonus_ledger_db import (
+        REASON_CASHBACK,
+        REASON_SPEND,
+        STATUS_LABELS_UK,
+        fetch_purchases_by_tx_ids,
+        fetch_users_brief,
+        history_title,
+        purchase_items_summary,
+    )
+    import json
 
     amt = float(row.get("amount_uah") or 0)
     st = STATUS_LABELS_UK.get(str(row.get("status") or ""), row.get("status") or "?")
     uid = row.get("user_id")
-    name = "—"
-    phone = ""
-    if uid:
-        u = get_user(int(uid))
-        if u:
-            name = (
-                u.get("display_name")
-                or u.get("user_first_name")
-                or str(uid)
-            )
-            phone = (u.get("user_phone") or "").strip()
+    users = fetch_users_brief([int(uid)] if uid else [])
+    u = users.get(int(uid)) if uid else None
+    phone = ((u or {}).get("user_phone") or "").strip()
 
     lines = [
         f"📒 <b>Операція #{row.get('id')}</b>",
         f"<b>{_esc(history_title(row))}</b>",
         "",
         f"Сума: <b>{_uah(amt)}</b> Крафтиків",
-        f"Статус Poster/ledger: <b>{_esc(st)}</b>",
-        f"Причина (код): <code>{_esc(row.get('reason'))}</code>",
+        f"Статус: <b>{_esc(st)}</b>",
+        f"Причина: <code>{_esc(row.get('reason'))}</code>",
         f"op_key: <code>{_esc(row.get('op_key'))}</code>",
         "",
-        f"Клієнт: <b>{_esc(name)}</b> <code>{uid or '—'}</code>",
+        f"Клієнт: {_client_label(uid, users)}",
     ]
+    if uid:
+        lines.append(f"Telegram ID: <code>{uid}</code>")
     if phone:
         lines.append(f"Телефон: <code>{_esc(phone)}</code>")
     if row.get("poster_client_id"):
         lines.append(f"Poster ID: <code>{row['poster_client_id']}</code>")
     if row.get("admin_user_id"):
         lines.append(f"Адмін (ручне): <code>{row['admin_user_id']}</code>")
+
+    reason = str(row.get("reason") or "")
+    tid = str(row.get("ref_id") or "")
+    if reason in (REASON_CASHBACK, REASON_SPEND) and tid:
+        tx = fetch_purchases_by_tx_ids([tid]).get(tid)
+        lines.append("")
+        lines.append(f"<b>Покупка</b> · чек <code>{_esc(tid)}</code>")
+        if tx:
+            spot = (tx.get("spot_name") or "").strip()
+            if spot:
+                lines.append(f"Кавʼярня: {_esc(spot)}")
+            try:
+                payed = float(tx.get("payed_sum_uah") or 0)
+            except (TypeError, ValueError):
+                payed = 0.0
+            if payed:
+                lines.append(f"Сума чека: <b>{payed:g}</b> грн")
+            try:
+                items = json.loads(tx.get("products_json") or "[]")
+            except Exception:
+                items = []
+            if items:
+                lines.append("Позиції:")
+                for it in items[:12]:
+                    if not isinstance(it, dict):
+                        continue
+                    name = _esc(it.get("name") or "Товар")
+                    try:
+                        qty = float(it.get("count") or 1)
+                    except (TypeError, ValueError):
+                        qty = 1
+                    qty_s = f"{qty:g}× " if qty > 1 else ""
+                    lines.append(f"  · {qty_s}{name}")
+            else:
+                summary = purchase_items_summary(tx.get("products_json"))
+                if summary:
+                    lines.append(_esc(summary))
+        else:
+            lines.append("<i>Чек ще не в локальній БД</i>")
+
     if row.get("balance_before") is not None:
         lines.append(f"Баланс до: {_uah(float(row['balance_before'])).lstrip('+')}")
     if row.get("balance_after") is not None:
@@ -120,11 +224,25 @@ def _format_op_detail(row: dict) -> str:
         lines.append(f"Проведено: {_esc(format_dt_ua(row.get('posted_at')))}")
     if row.get("error"):
         lines.append(f"⚠️ Помилка: {_esc(row.get('error'))}")
-    if row.get("ref_type") or row.get("ref_id"):
-        lines.append(
-            f"Звʼязок: {_esc(row.get('ref_type'))} / {_esc(row.get('ref_id'))}"
-        )
     return "\n".join(lines)
+
+
+def _enrich_page(rows: list[dict]) -> tuple[dict[int, dict], dict[str, dict]]:
+    from database_functions.bonus_ledger_db import (
+        REASON_CASHBACK,
+        REASON_SPEND,
+        fetch_purchases_by_tx_ids,
+        fetch_users_brief,
+    )
+
+    uids = [int(r["user_id"]) for r in rows if r.get("user_id") is not None]
+    tx_ids = [
+        str(r["ref_id"])
+        for r in rows
+        if r.get("ref_id")
+        and str(r.get("reason") or "") in (REASON_CASHBACK, REASON_SPEND)
+    ]
+    return fetch_users_brief(uids), fetch_purchases_by_tx_ids(tx_ids)
 
 
 async def _edit_or_send(
@@ -203,13 +321,15 @@ async def _render_list(
         await _edit_or_send(callback.message, text, get_ledger_hub_keyboard())
         return
 
+    users, purchases = await asyncio.to_thread(_enrich_page, rows)
     lines = [
         f"{title}",
         f"Всього: <b>{total}</b> · стор. {(offset // PAGE_SIZE) + 1}",
         "",
     ]
     for row in rows:
-        lines.append(_format_op_line(row))
+        lines.append(_format_op_line(row, users=users, purchases=purchases))
+        lines.append("")
     # Inline buttons per op (max ~8 to keep keyboard small)
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -228,7 +348,7 @@ async def _render_list(
             ]
         )
     kb = InlineKeyboardMarkup(inline_keyboard=op_rows + list(base_kb.inline_keyboard))
-    text = "\n".join(lines)
+    text = "\n".join(lines).rstrip()
     if len(text) > 3900:
         text = text[:3900] + "\n…"
     await _edit_or_send(callback.message, text, kb)
@@ -313,6 +433,7 @@ async def ledger_bad(callback: types.CallbackQuery):
         await callback.answer("Немає проблемних записів", show_alert=True)
         return
 
+    users, purchases = await asyncio.to_thread(_enrich_page, rows)
     lines = [
         "⚠️ <b>Незавершені / помилки</b>",
         f"Всього: <b>{total}</b>",
@@ -322,7 +443,8 @@ async def ledger_bad(callback: types.CallbackQuery):
 
     op_rows: list[list[InlineKeyboardButton]] = []
     for row in rows:
-        lines.append(_format_op_line(row))
+        lines.append(_format_op_line(row, users=users, purchases=purchases))
+        lines.append("")
         op_rows.append(
             [
                 InlineKeyboardButton(

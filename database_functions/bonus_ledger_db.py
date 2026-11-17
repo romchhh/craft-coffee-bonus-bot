@@ -484,3 +484,66 @@ def history_title(row: dict) -> str:
     if row.get("title"):
         return str(row["title"])
     return REASON_TITLES_UK.get(str(row.get("reason") or ""), "Операція з Крафтиками")
+
+
+def fetch_users_brief(user_ids: list[int]) -> dict[int, dict]:
+    """user_id → {display_name, user_first_name, user_phone}."""
+    ids = sorted({int(x) for x in user_ids if x is not None})
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    rows = cursor.execute(
+        f"""
+        SELECT user_id, display_name, user_first_name, user_phone, user_name
+        FROM users WHERE user_id IN ({ph})
+        """,
+        ids,
+    ).fetchall()
+    return {int(r["user_id"]): dict(r) for r in rows}
+
+
+def fetch_purchases_by_tx_ids(tx_ids: list[str]) -> dict[str, dict]:
+    """transaction_id → purchase row (products, spot, sum)."""
+    ids = sorted({str(x) for x in tx_ids if x})
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    rows = cursor.execute(
+        f"""
+        SELECT transaction_id, products_json, spot_name, payed_sum_uah, bonus_uah, bonus_spent_uah
+        FROM processed_transactions
+        WHERE transaction_id IN ({ph})
+        """,
+        ids,
+    ).fetchall()
+    return {str(r["transaction_id"]): dict(r) for r in rows}
+
+
+def purchase_items_summary(products_json: object, *, max_items: int = 4) -> str:
+    """Short human line from products_json, e.g. «Капучино, Круасан»."""
+    import json
+
+    try:
+        items = json.loads(products_json or "[]")
+    except Exception:
+        return ""
+    if not isinstance(items, list) or not items:
+        return ""
+    names: list[str] = []
+    for it in items[:max_items]:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get("name") or "Товар").strip()
+        try:
+            qty = float(it.get("count") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        if qty > 1:
+            names.append(f"{qty:g}×{name}")
+        else:
+            names.append(name)
+    more = len(items) - max_items
+    s = ", ".join(names)
+    if more > 0:
+        s += f" +{more}"
+    return s
