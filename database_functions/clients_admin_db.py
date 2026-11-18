@@ -150,35 +150,60 @@ def enrich_clients_list_metrics(users: list[dict]) -> list[dict]:
     return out
 
 
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    out: list[str] = []
+    for x in value:
+        s = str(x or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
 def list_clients_sorted(
     sort: str = "join_desc",
     *,
     offset: int = 0,
     limit: int = PAGE_SIZE,
-    spot_name: str | None = None,
-    product_q: str | None = None,
+    spot_name: str | list[str] | None = None,
+    product_q: str | list[str] | None = None,
+    spot_names: list[str] | None = None,
+    product_qs: list[str] | None = None,
 ) -> tuple[list[dict], int]:
-    """Return (page rows with metrics, total matching)."""
+    """Return (page rows with metrics, total matching).
+
+    Several spots → OR (купував у будь-якій з обраних).
+    Several products → AND (мав кожен із товарів хоча б раз).
+    Spot + product filters combine with AND.
+    """
     sort = sort if sort in SORT_KEYS else "join_desc"
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), 30))
 
+    spots = _as_str_list(spot_names if spot_names is not None else spot_name)
+    products = _as_str_list(product_qs if product_qs is not None else product_q)
+
     where = ["u.registered = 1"]
     params: list[Any] = []
 
-    if spot_name:
+    if spots:
+        placeholders = ",".join("?" * len(spots))
         where.append(
-            """
+            f"""
             EXISTS (
               SELECT 1 FROM processed_transactions pt
               WHERE pt.telegram_user_id = u.user_id
-                AND IFNULL(pt.spot_name, '') = ?
+                AND IFNULL(pt.spot_name, '') IN ({placeholders})
             )
             """
         )
-        params.append(spot_name)
+        params.extend(spots)
 
-    if product_q:
+    for pq in products:
         where.append(
             """
             EXISTS (
@@ -188,7 +213,7 @@ def list_clients_sorted(
             )
             """
         )
-        params.append(f"%{product_q.strip()}%")
+        params.append(f"%{pq}%")
 
     where_sql = " AND ".join(where)
 

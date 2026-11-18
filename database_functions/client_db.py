@@ -507,12 +507,85 @@ def list_recent_registered(limit: int = 25) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _name_tokens(value: object) -> list[str]:
+    import re
+
+    return [t for t in re.split(r"[\s\-_/]+", str(value or "").strip()) if t]
+
+
+def _name_query_matches(row: dict, query: str) -> bool:
+    """Match names by whole words / prefixes — not mid-patronymic (Сергій ⊂ Сергійович)."""
+    q = query.lstrip("@").strip().casefold()
+    if not q:
+        return False
+
+    uname = str(row.get("user_name") or "").lstrip("@").casefold()
+    if uname and (uname == q or uname.startswith(q)):
+        return True
+
+    # Імʼя / display: слово = запит або починається з нього
+    for field in ("display_name", "user_first_name"):
+        for word in _name_tokens(row.get(field)):
+            w = word.casefold()
+            if w == q or w.startswith(q):
+                return True
+
+    # Прізвище: лише повний збіг слова (не префікс у по батькові)
+    for word in _name_tokens(row.get("user_last_name")):
+        if word.casefold() == q:
+            return True
+
+    return False
+
+
+def _name_match_rank(row: dict, query: str) -> int:
+    q = query.lstrip("@").strip().casefold()
+    first = str(row.get("user_first_name") or "").casefold()
+    disp = str(row.get("display_name") or "").casefold()
+    if first == q or disp == q:
+        return 0
+    if first.startswith(q) or disp.startswith(q):
+        return 1
+    uname = str(row.get("user_name") or "").lstrip("@").casefold()
+    if uname == q:
+        return 2
+    return 3
+
+
 def search_clients(query: str, *, limit: int = 40) -> list[dict]:
     """Search registered clients by phone, Telegram id, card, username or name."""
     q = (query or "").strip()
     if not q:
         return []
+    limit = max(1, min(int(limit), 100))
     digits = "".join(ch for ch in q if ch.isdigit())
+    has_letters = any(ch.isalpha() for ch in q)
+    looks_like_name = has_letters and not q.lstrip("+").isdigit()
+
+    # --- Name / @username: candidates via LIKE, then precise word filter ---
+    if looks_like_name:
+        needle = q.lstrip("@").strip()
+        like = f"%{needle}%"
+        rows = cursor.execute(
+            """
+            SELECT * FROM users
+            WHERE registered = 1 AND (
+                IFNULL(user_name, '') LIKE ?
+                OR IFNULL(display_name, '') LIKE ?
+                OR IFNULL(user_first_name, '') LIKE ?
+                OR IFNULL(user_last_name, '') LIKE ?
+            )
+            LIMIT 300
+            """,
+            (like, like, like, like),
+        ).fetchall()
+        matched = [dict(r) for r in rows if _name_query_matches(dict(r), needle)]
+        # stable sort: newest activity, then exact-name ranks first
+        matched.sort(key=lambda r: str(r.get("last_activity") or ""), reverse=True)
+        matched.sort(key=lambda r: _name_match_rank(r, needle))
+        return matched[:limit]
+
+    # --- IDs / phone / card / poster ---
     like = f"%{q.lstrip('@')}%"
     params: list = []
     clauses = [
@@ -521,26 +594,10 @@ def search_clients(query: str, *, limit: int = 40) -> list[dict]:
         "card_number LIKE ?",
         "IFNULL(card_short_id, '') LIKE ?",
         "IFNULL(user_name, '') LIKE ?",
-        "IFNULL(display_name, '') LIKE ?",
-        "IFNULL(user_first_name, '') LIKE ?",
-        "IFNULL(user_last_name, '') LIKE ?",
         "IFNULL(user_phone, '') LIKE ?",
         "CAST(IFNULL(poster_client_id, '') AS TEXT) = ?",
     ]
-    params.extend(
-        [
-            q,
-            like,
-            like,
-            like,
-            like,
-            like,
-            like,
-            like,
-            like,
-            q,
-        ]
-    )
+    params.extend([q, like, like, like, like, like, q])
     if digits:
         clauses.append(
             "REPLACE(REPLACE(REPLACE(IFNULL(user_phone, ''), '+', ''), ' ', ''), '-', '') LIKE ?"
@@ -549,7 +606,6 @@ def search_clients(query: str, *, limit: int = 40) -> list[dict]:
         if len(digits) >= 3:
             clauses.append("card_number LIKE ?")
             params.append(f"%{digits}%")
-        if len(digits) >= 3:
             clauses.append("CAST(IFNULL(poster_client_id, '') AS TEXT) LIKE ?")
             params.append(f"%{digits}%")
         if digits == q or (q.isdigit() and len(digits) >= 4):
@@ -568,6 +624,6 @@ def search_clients(query: str, *, limit: int = 40) -> list[dict]:
         LIMIT ?
     """
     phone_pref = f"%{digits}%" if digits else like
-    params.extend([q, q, phone_pref, int(limit)])
+    params.extend([q, q, phone_pref, limit])
     rows = cursor.execute(sql, params).fetchall()
     return [dict(r) for r in rows]

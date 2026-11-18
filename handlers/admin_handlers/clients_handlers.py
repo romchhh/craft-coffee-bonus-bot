@@ -86,6 +86,71 @@ async def _set_browse(state: FSMContext, **fields) -> dict:
     return browse
 
 
+def _normalize_filter_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    out: list[str] = []
+    for x in value:
+        s = str(x or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def _filters_from_data(data: dict) -> tuple[list[str], list[str]]:
+    """Active spot/product filters (supports legacy single-value keys)."""
+    spots = data.get("clients_filter_spots")
+    products = data.get("clients_filter_products")
+    if spots is None and data.get("clients_filter_spot"):
+        spots = [data.get("clients_filter_spot")]
+    if products is None and data.get("clients_filter_product"):
+        products = [data.get("clients_filter_product")]
+    browse = data.get("clients_browse") or {}
+    if spots is None and browse.get("spots"):
+        spots = browse.get("spots")
+    elif spots is None and browse.get("spot"):
+        spots = [browse.get("spot")]
+    if products is None and browse.get("products"):
+        products = browse.get("products")
+    elif products is None and browse.get("product"):
+        products = [browse.get("product")]
+    return _normalize_filter_list(spots), _normalize_filter_list(products)
+
+
+async def _save_filters(
+    state: FSMContext,
+    *,
+    spots: list[str] | None = None,
+    products: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    data = await state.get_data()
+    cur_spots, cur_products = _filters_from_data(data)
+    if spots is not None:
+        cur_spots = _normalize_filter_list(spots)
+    if products is not None:
+        cur_products = _normalize_filter_list(products)
+    await state.update_data(
+        clients_filter_spots=cur_spots,
+        clients_filter_products=cur_products,
+        # legacy keys cleared so they don't resurrect
+        clients_filter_spot=None,
+        clients_filter_product=None,
+    )
+    return cur_spots, cur_products
+
+
+def _filters_caption(spots: list[str], products: list[str]) -> str:
+    bits: list[str] = []
+    if spots:
+        bits.append("кавʼярні: " + ", ".join(_esc(s) for s in spots))
+    if products:
+        bits.append("продукти: " + ", ".join(_esc(p) for p in products))
+    return ("\nФільтри: " + " · ".join(bits)) if bits else ""
+
+
 def _build_client_card_sync(
     user: dict,
     *,
@@ -424,15 +489,14 @@ async def _render_clients_list(
     )
 
     data = await state.get_data()
-    spot = data.get("clients_filter_spot") or None
-    product = data.get("clients_filter_product") or None
+    spots, products = _filters_from_data(data)
     rows, total = await asyncio.to_thread(
         list_clients_sorted,
         sort,
         offset=offset,
         limit=PAGE_SIZE,
-        spot_name=spot,
-        product_q=product,
+        spot_names=spots,
+        product_qs=products,
     )
     ids = [int(r["user_id"]) for r in rows]
     await _set_browse(
@@ -444,16 +508,13 @@ async def _render_clients_list(
         ids=ids,
         pos=0,
         query=None,
-        spot=spot,
-        product=product,
+        spots=spots,
+        products=products,
+        spot=spots[0] if len(spots) == 1 else None,
+        product=products[0] if len(products) == 1 else None,
     )
     label = SORT_LABELS.get(sort, sort)
-    filters = []
-    if spot:
-        filters.append(f"кавʼярня: {_esc(spot)}")
-    if product:
-        filters.append(f"продукт: {_esc(product)}")
-    filt_s = ("\nФільтр: " + ", ".join(filters)) if filters else ""
+    filt_s = _filters_caption(spots, products)
     page = (offset // PAGE_SIZE) + 1
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     text = (
@@ -488,23 +549,113 @@ async def clients_list(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_sort_menu")
-async def clients_sort_menu(callback: types.CallbackQuery):
+async def clients_sort_menu(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    spots, products = _filters_from_data(data)
+    active = _filters_caption(spots, products)
+    extra = f"\n\n<b>Активні зараз</b>{active}" if active else (
+        "\n\n<i>Можна обрати кілька кавʼярень і кілька продуктів разом "
+        "(кавʼярні — «будь-яка з обраних», продукти — «усі разом»).</i>"
+    )
     await callback.message.edit_text(
         "↕️ <b>Сортування та фільтри</b>\n\n"
         "Витрати й Крафтики — за чеками, що вже пройшли через бота.\n"
         "Вік — з дати народження в профілі.\n"
-        "Кавʼярня / продукт — хто купував у цій точці або цей товар.",
+        "Кавʼярня / продукт — хто купував у цій точці або цей товар."
+        f"{extra}",
         parse_mode="HTML",
-        reply_markup=get_clients_sort_keyboard(),
+        reply_markup=get_clients_sort_keyboard(spots=spots, products=products),
     )
     await callback.answer()
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_clear_filters")
 async def clients_clear_filters(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(clients_filter_spot=None, clients_filter_product=None)
-    await _render_clients_list(callback, state, sort="join_desc", offset=0)
+    await _save_filters(state, spots=[], products=[])
+    data = await state.get_data()
+    sort = ((data.get("clients_browse") or {}).get("sort")) or "join_desc"
+    await _render_clients_list(callback, state, sort=sort, offset=0)
     await callback.answer("Фільтри скинуто")
+
+
+@router.callback_query(IsAdmin(), F.data == "clients_clear_spots")
+async def clients_clear_spots(callback: types.CallbackQuery, state: FSMContext):
+    await _save_filters(state, spots=[])
+    data = await state.get_data()
+    choices = data.get("clients_spot_choices") or []
+    if not choices:
+        from database_functions.clients_admin_db import list_visit_spots
+
+        choices = list_visit_spots(limit=12)
+        await state.update_data(clients_spot_choices=choices)
+    await callback.message.edit_text(
+        "📍 Обери одну або кілька кавʼярень (повторний тап знімає):\n"
+        "Потім «Готово».",
+        reply_markup=get_clients_spot_filter_keyboard(choices, selected=[]),
+    )
+    await callback.answer("Кавʼярні скинуто")
+
+
+@router.callback_query(IsAdmin(), F.data == "clients_apply_filters")
+async def clients_apply_filters(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    sort = ((data.get("clients_browse") or {}).get("sort")) or "spent_desc"
+    await _render_clients_list(callback, state, sort=sort, offset=0)
+    await callback.answer()
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("clients_rm_spot:"))
+async def clients_rm_spot(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    spots, products = _filters_from_data(data)
+    try:
+        idx = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer()
+        return
+    if 0 <= idx < len(spots):
+        spots = [s for i, s in enumerate(spots) if i != idx]
+        await _save_filters(state, spots=spots)
+    spots, products = _filters_from_data(await state.get_data())
+    active = _filters_caption(spots, products)
+    extra = f"\n\n<b>Активні зараз</b>{active}" if active else ""
+    await callback.message.edit_text(
+        "↕️ <b>Сортування та фільтри</b>\n\n"
+        "Витрати й Крафтики — за чеками, що вже пройшли через бота.\n"
+        "Вік — з дати народження в профілі.\n"
+        "Кавʼярня / продукт — хто купував у цій точці або цей товар."
+        f"{extra}",
+        parse_mode="HTML",
+        reply_markup=get_clients_sort_keyboard(spots=spots, products=products),
+    )
+    await callback.answer("Прибрано")
+
+
+@router.callback_query(IsAdmin(), F.data.startswith("clients_rm_product:"))
+async def clients_rm_product(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    spots, products = _filters_from_data(data)
+    try:
+        idx = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer()
+        return
+    if 0 <= idx < len(products):
+        products = [p for i, p in enumerate(products) if i != idx]
+        await _save_filters(state, products=products)
+    spots, products = _filters_from_data(await state.get_data())
+    active = _filters_caption(spots, products)
+    extra = f"\n\n<b>Активні зараз</b>{active}" if active else ""
+    await callback.message.edit_text(
+        "↕️ <b>Сортування та фільтри</b>\n\n"
+        "Витрати й Крафтики — за чеками, що вже пройшли через бота.\n"
+        "Вік — з дати народження в профілі.\n"
+        "Кавʼярня / продукт — хто купував у цій точці або цей товар."
+        f"{extra}",
+        parse_mode="HTML",
+        reply_markup=get_clients_sort_keyboard(spots=spots, products=products),
+    )
+    await callback.answer("Прибрано")
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_filter_spot")
@@ -518,9 +669,13 @@ async def clients_filter_spot(callback: types.CallbackQuery, state: FSMContext):
             "Ще немає чеків із назвою кавʼярні в боті", show_alert=True
         )
         return
+    data = await state.get_data()
+    selected, _ = _filters_from_data(data)
     await callback.message.edit_text(
-        "📍 Обери кавʼярню — покажемо клієнтів, які там купували:",
-        reply_markup=get_clients_spot_filter_keyboard(spots),
+        "📍 Обери <b>одну або кілька</b> кавʼярень (повторний тап знімає).\n"
+        "Потім натисни «Готово» — продукт-фільтри збережуться.",
+        parse_mode="HTML",
+        reply_markup=get_clients_spot_filter_keyboard(spots, selected=selected),
     )
     await callback.answer()
 
@@ -528,29 +683,49 @@ async def clients_filter_spot(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(IsAdmin(), F.data.startswith("clients_spot:"))
 async def clients_spot_pick(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    spots = data.get("clients_spot_choices") or []
+    choices = data.get("clients_spot_choices") or []
     try:
         idx = int((callback.data or "").split(":")[-1])
     except ValueError:
         await callback.answer("Помилка", show_alert=True)
         return
-    if idx < 0 or idx >= len(spots):
+    if idx < 0 or idx >= len(choices):
         from database_functions.clients_admin_db import list_visit_spots
 
-        spots = list_visit_spots(limit=12)
-    if idx < 0 or idx >= len(spots):
+        choices = list_visit_spots(limit=12)
+        await state.update_data(clients_spot_choices=choices)
+    if idx < 0 or idx >= len(choices):
         await callback.answer("Кавʼярню не знайдено", show_alert=True)
         return
-    await state.update_data(clients_filter_spot=spots[idx], clients_filter_product=None)
-    await _render_clients_list(callback, state, sort="spent_desc", offset=0)
-    await callback.answer()
+    selected, _ = _filters_from_data(data)
+    name = choices[idx]
+    if name in selected:
+        selected = [s for s in selected if s != name]
+    else:
+        selected = [*selected, name]
+    await _save_filters(state, spots=selected)
+    await callback.message.edit_reply_markup(
+        reply_markup=get_clients_spot_filter_keyboard(choices, selected=selected)
+    )
+    await callback.answer("Додано" if name in selected else "Прибрано")
 
 
 @router.callback_query(IsAdmin(), F.data == "clients_filter_product")
 async def clients_filter_product(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    _, products = _filters_from_data(data)
+    already = ""
+    if products:
+        already = (
+            "\nУже обрано: <b>"
+            + "</b>, <b>".join(_esc(p) for p in products)
+            + "</b>\nНовий запит <b>додасться</b> до списку."
+        )
     await state.set_state(ClientAdmin.filter_product)
     await callback.message.answer(
         "☕ Введи частину назви товару (напр. <b>капучино</b>).\n"
+        "Можна додати кілька продуктів по черзі."
+        f"{already}\n"
         "Або «Скасувати».",
         parse_mode="HTML",
     )
@@ -562,39 +737,59 @@ async def clients_filter_product_query(message: types.Message, state: FSMContext
     raw = (message.text or "").strip()
     if raw.lower() in {"скасувати", "cancel", "/cancel"}:
         await state.set_state(None)
-        await message.answer("Скасовано.", reply_markup=get_clients_hub_keyboard())
+        data = await state.get_data()
+        spots, products = _filters_from_data(data)
+        await message.answer(
+            "Скасовано.",
+            reply_markup=get_clients_sort_keyboard(spots=spots, products=products),
+        )
         return
-    await state.update_data(clients_filter_product=raw, clients_filter_spot=None)
+    data = await state.get_data()
+    spots, products = _filters_from_data(data)
+    if raw not in products:
+        products = [*products, raw]
+    await _save_filters(state, products=products)
     await state.set_state(None)
-    from database_functions.clients_admin_db import PAGE_SIZE, list_clients_sorted
+    from database_functions.clients_admin_db import (
+        PAGE_SIZE,
+        SORT_LABELS,
+        list_clients_sorted,
+    )
 
+    browse = data.get("clients_browse") or {}
+    sort = browse.get("sort") or "spent_desc"
     rows, total = await asyncio.to_thread(
         list_clients_sorted,
-        "spent_desc",
+        sort,
         offset=0,
         limit=PAGE_SIZE,
-        product_q=raw,
+        spot_names=spots,
+        product_qs=products,
     )
     ids = [int(r["user_id"]) for r in rows]
     await _set_browse(
         state,
         mode="list",
-        sort="spent_desc",
+        sort=sort,
         offset=0,
         total=total,
         ids=ids,
         pos=0,
-        product=raw,
-        spot=None,
+        products=products,
+        spots=spots,
+        product=products[0] if len(products) == 1 else None,
+        spot=spots[0] if len(spots) == 1 else None,
         query=None,
     )
+    label = SORT_LABELS.get(sort, sort)
     await message.answer(
-        f"☕ Фільтр продукт: <b>{_esc(raw)}</b>\n"
-        f"Знайдено: <b>{total}</b>\n"
-        "<i>Відкрий картку · ⬅️➡️ · Назад збереже фільтр</i>",
+        f"📋 <b>Клієнти</b> · {label}\n"
+        f"Всього: <b>{total}</b>"
+        f"{_filters_caption(spots, products)}\n"
+        "<i>Відкрий картку · ⬅️➡️ · Назад збереже фільтри</i>",
         parse_mode="HTML",
         reply_markup=get_clients_list_keyboard(
-            rows, sort="spent_desc", offset=0, total=total, page_size=PAGE_SIZE
+            rows, sort=sort, offset=0, total=total, page_size=PAGE_SIZE
         ),
     )
 
@@ -1086,8 +1281,7 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
         if pos > 0:
             pos -= 1
         elif mode == "list" and offset > 0:
-            spot = data.get("clients_filter_spot") or browse.get("spot")
-            product = data.get("clients_filter_product") or browse.get("product")
+            spots, products = _filters_from_data(data)
             sort = browse.get("sort") or "join_desc"
             new_offset = max(0, offset - PAGE_SIZE)
             rows, total = await asyncio.to_thread(
@@ -1095,8 +1289,8 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
                 sort,
                 offset=new_offset,
                 limit=PAGE_SIZE,
-                spot_name=spot,
-                product_q=product,
+                spot_names=spots,
+                product_qs=products,
             )
             ids = [int(r["user_id"]) for r in rows]
             if not ids:
@@ -1105,7 +1299,12 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
             offset = new_offset
             pos = len(ids) - 1
             browse.update(
-                ids=ids, offset=offset, total=total, pos=pos, spot=spot, product=product
+                ids=ids,
+                offset=offset,
+                total=total,
+                pos=pos,
+                spots=spots,
+                products=products,
             )
             await state.update_data(clients_browse=browse)
             await _show_client_by_id(callback, state, ids[pos])
@@ -1117,8 +1316,7 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
         if pos < len(ids) - 1:
             pos += 1
         elif mode == "list" and (offset + len(ids)) < total:
-            spot = data.get("clients_filter_spot") or browse.get("spot")
-            product = data.get("clients_filter_product") or browse.get("product")
+            spots, products = _filters_from_data(data)
             sort = browse.get("sort") or "join_desc"
             new_offset = offset + PAGE_SIZE
             rows, total = await asyncio.to_thread(
@@ -1126,8 +1324,8 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
                 sort,
                 offset=new_offset,
                 limit=PAGE_SIZE,
-                spot_name=spot,
-                product_q=product,
+                spot_names=spots,
+                product_qs=products,
             )
             ids = [int(r["user_id"]) for r in rows]
             if not ids:
@@ -1136,7 +1334,12 @@ async def client_nav(callback: types.CallbackQuery, state: FSMContext):
             offset = new_offset
             pos = 0
             browse.update(
-                ids=ids, offset=offset, total=total, pos=pos, spot=spot, product=product
+                ids=ids,
+                offset=offset,
+                total=total,
+                pos=pos,
+                spots=spots,
+                products=products,
             )
             await state.update_data(clients_browse=browse)
             await _show_client_by_id(callback, state, ids[pos])

@@ -154,13 +154,9 @@ def _esc(s: object) -> str:
 
 
 def user_name_link(user_id: object, name: object) -> str:
-    """Clickable Telegram profile link embedded in the display name."""
+    """Display name only — no tg://user mention (mentions can notify the client)."""
     label = _esc(str(name or user_id or "—").strip() or "—")
-    try:
-        uid = int(user_id)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return f"<b>{label}</b>"
-    return f'<a href="tg://user?id={uid}"><b>{label}</b></a>'
+    return f"<b>{label}</b>"
 
 
 def build_anomalies_report() -> str:

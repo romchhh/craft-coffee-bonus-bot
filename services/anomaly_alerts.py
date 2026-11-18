@@ -24,6 +24,7 @@ REFERRAL_FRIENDS_DAY_ALERT = 11
 
 
 def _owner_ids() -> list[int]:
+    """Only bot admins (env + admins table). Never clients."""
     ids: set[int] = set()
     try:
         from config import administrators
@@ -85,7 +86,13 @@ async def notify_anomaly(
             kb = _client_card_keyboard(int(user_id))
     except (TypeError, ValueError):
         kb = None
-    for aid in _owner_ids():
+
+    recipients = _owner_ids()
+    if not recipients:
+        log.warning("anomaly alert recorded but no admin recipients: %s", anomaly_key)
+        return True
+
+    for aid in recipients:
         try:
             await bot.send_message(aid, text, parse_mode="HTML", reply_markup=kb)
         except Exception as exc:

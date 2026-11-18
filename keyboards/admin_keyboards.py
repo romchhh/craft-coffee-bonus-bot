@@ -172,7 +172,14 @@ def get_client_card_keyboard(
 
 def _client_row_label(u: dict) -> str:
     uid = int(u["user_id"])
-    name = (u.get("display_name") or u.get("user_first_name") or "Клієнт").strip()
+    first = (u.get("user_first_name") or "").strip()
+    last = (u.get("user_last_name") or "").strip()
+    display = (u.get("display_name") or "").strip()
+    # Показуємо імʼя+прізвище, щоб було видно чому спрацював пошук
+    if first and last:
+        name = f"{first} {last}"
+    else:
+        name = display or first or last or "Клієнт"
     phone = (u.get("user_phone") or "").strip()
     flag = "🚫 " if int(u.get("bonuses_blocked") or 0) else ""
     bits: list[str] = []
@@ -225,15 +232,68 @@ def get_client_search_results_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_clients_sort_keyboard() -> InlineKeyboardMarkup:
+def get_clients_sort_keyboard(
+    *,
+    spots: list[str] | None = None,
+    products: list[str] | None = None,
+) -> InlineKeyboardMarkup:
     from database_functions.clients_admin_db import SORT_LABELS
 
+    spots = [s for s in (spots or []) if s]
+    products = [p for p in (products or []) if p]
     rows = [
         [InlineKeyboardButton(text=label, callback_data=f"clients_list:{key}:0")]
         for key, label in SORT_LABELS.items()
     ]
-    rows.append([InlineKeyboardButton(text="📍 Фільтр: кавʼярня", callback_data="clients_filter_spot")])
-    rows.append([InlineKeyboardButton(text="☕ Фільтр: продукт", callback_data="clients_filter_product")])
+    spot_label = "📍 Кавʼярні"
+    if spots:
+        spot_label += f" · {len(spots)}✓"
+    prod_label = "☕ Продукти"
+    if products:
+        prod_label += f" · {len(products)}✓"
+    rows.append(
+        [
+            InlineKeyboardButton(text=spot_label, callback_data="clients_filter_spot"),
+            InlineKeyboardButton(text=prod_label, callback_data="clients_filter_product"),
+        ]
+    )
+    if spots or products:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Показати з фільтрами",
+                    callback_data="clients_apply_filters",
+                )
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🧹 Скинути фільтри",
+                    callback_data="clients_clear_filters",
+                )
+            ]
+        )
+        for i, name in enumerate(spots[:8]):
+            label = (name[:28] + "…") if len(name) > 29 else name
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"✕ 📍 {label}",
+                        callback_data=f"clients_rm_spot:{i}",
+                    )
+                ]
+            )
+        for i, name in enumerate(products[:8]):
+            label = (name[:28] + "…") if len(name) > 29 else name
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"✕ ☕ {label}",
+                        callback_data=f"clients_rm_product:{i}",
+                    )
+                ]
+            )
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -290,14 +350,43 @@ def get_clients_list_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_clients_spot_filter_keyboard(spots: list[str]) -> InlineKeyboardMarkup:
+def get_clients_spot_filter_keyboard(
+    spots: list[str],
+    *,
+    selected: list[str] | None = None,
+) -> InlineKeyboardMarkup:
+    selected_set = {s for s in (selected or []) if s}
     rows = []
     for i, name in enumerate(spots[:12]):
-        label = (name[:40] + "…") if len(name) > 41 else name
+        mark = "✅ " if name in selected_set else ""
+        label = (name[:36] + "…") if len(name) > 37 else name
         rows.append(
-            [InlineKeyboardButton(text=f"📍 {label}", callback_data=f"clients_spot:{i}")]
+            [
+                InlineKeyboardButton(
+                    text=f"{mark}📍 {label}",
+                    callback_data=f"clients_spot:{i}",
+                )
+            ]
         )
-    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="clients_sort_menu")])
+    n = len(selected_set)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=f"✅ Готово" + (f" · {n}" if n else ""),
+                callback_data="clients_apply_filters",
+            )
+        ]
+    )
+    if n:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🧹 Скинути кавʼярні",
+                    callback_data="clients_clear_spots",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ До фільтрів", callback_data="clients_sort_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
