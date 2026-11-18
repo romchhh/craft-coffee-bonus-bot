@@ -107,7 +107,7 @@ async def scan_and_notify(bot) -> dict:
     for r in enrich_with_users(referral_friends_today(min_count=REFERRAL_FRIENDS_DAY_ALERT)):
         uid = r["user_id"]
         key = f"ref_friends_day:{day}:{uid}"
-        name = user_name_link(uid, r.get("name"))
+        name = user_name_link(uid, r.get("name"), r.get("username"), link=False)
         ok = await notify_anomaly(
             bot,
             anomaly_key=key,
@@ -126,7 +126,7 @@ async def scan_and_notify(bot) -> dict:
     for r in enrich_with_users(frequent_cashback(hours=24, min_count=4)):
         uid = r["user_id"]
         key = f"freq_cashback:{day}:{uid}"
-        name = user_name_link(uid, r.get("name"))
+        name = user_name_link(uid, r.get("name"), r.get("username"), link=False)
         ok = await notify_anomaly(
             bot,
             anomaly_key=key,
@@ -145,7 +145,7 @@ async def scan_and_notify(bot) -> dict:
         uid = r["user_id"]
         week = now_kyiv().strftime("%Y-W%W")
         key = f"high_cashback_week:{week}:{uid}"
-        name = user_name_link(uid, r.get("name"))
+        name = user_name_link(uid, r.get("name"), r.get("username"), link=False)
         ok = await notify_anomaly(
             bot,
             anomaly_key=key,
@@ -163,7 +163,7 @@ async def scan_and_notify(bot) -> dict:
     for r in enrich_with_users(micro_checks(hours=24, max_payed=55, min_count=5)):
         uid = r["user_id"]
         key = f"micro_checks:{day}:{uid}"
-        name = user_name_link(uid, r.get("name"))
+        name = user_name_link(uid, r.get("name"), r.get("username"), link=False)
         ok = await notify_anomaly(
             bot,
             anomaly_key=key,

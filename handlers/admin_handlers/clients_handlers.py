@@ -166,6 +166,7 @@ def _build_client_card_sync(
         get_referrer_for_friend,
         list_friends_of_referrer,
     )
+    from database_functions.anomalies_db import user_name_link
     from database_functions.referrals_db import referrer_stats
     from services.charge_loyalty import get_cashback_percent_for_user
     from utils.kyiv_time import format_date_ua, format_dt_ua
@@ -179,6 +180,7 @@ def _build_client_card_sync(
         or "—"
     )
     username = (user.get("user_name") or "").strip()
+    name_html = user_name_link(uid, name, username)
     phone = (user.get("user_phone") or "—").strip() or "—"
     card = (user.get("card_number") or "—").strip() or "—"
     poster_id = user.get("poster_client_id")
@@ -241,7 +243,13 @@ def _build_client_card_sync(
         if blocked
         else "✅ Крафтики активні"
     )
-    uname = f"@{_esc(username)}" if username else "—"
+    u_raw = username.lstrip("@")
+    if u_raw and all(ch.isalnum() or ch == "_" for ch in u_raw):
+        uname = f'<a href="https://t.me/{u_raw}">@{_esc(u_raw)}</a>'
+    elif username:
+        uname = f"@{_esc(username)}"
+    else:
+        uname = "—"
     personal = user.get("personal_cashback_percent")
     personal_s = f" · перс. <b>{float(personal):g}%</b>" if personal is not None else ""
 
@@ -262,14 +270,16 @@ def _build_client_card_sync(
     try:
         brought_by = get_referrer_for_friend(uid)
         if brought_by:
+            rid = brought_by.get("referrer_user_id")
             rname = (
                 brought_by.get("display_name")
                 or brought_by.get("user_first_name")
-                or brought_by.get("referrer_user_id")
+                or rid
             )
             rphone = (brought_by.get("user_phone") or "").strip()
             ref_lines += (
-                f"Привів: <b>{_esc(rname)}</b> <code>{brought_by.get('referrer_user_id')}</code>"
+                f"Привів: {user_name_link(rid, rname, brought_by.get('user_name'))} "
+                f"<code>{rid}</code>"
                 + (f" · {_esc(rphone)}" if rphone else "")
                 + f" · {_esc(brought_by.get('status') or '')}\n"
             )
@@ -283,20 +293,22 @@ def _build_client_card_sync(
                 f"+{_uah(stats_ref.get('earned_uah') or 0)} К)\n"
             )
             for fr in friends[:5]:
+                fid = fr.get("friend_user_id")
                 fname = (
                     fr.get("display_name")
                     or fr.get("user_first_name")
-                    or fr.get("friend_user_id")
+                    or fid
                 )
                 ref_lines += (
-                    f"  · {_esc(fname)} <code>{fr.get('friend_user_id')}</code> "
+                    f"  · {user_name_link(fid, fname, fr.get('user_name'))} "
+                    f"<code>{fid}</code> "
                     f"· {_esc(fr.get('status') or '')}\n"
                 )
     except Exception as exc:
         log.debug("client card referrals: %s", exc)
 
     text = (
-        f"👤 <b>{_esc(name)}</b>\n"
+        f"👤 {name_html}\n"
         f"{block_line}\n\n"
         f"<b>Профіль</b>\n"
         f"Telegram ID: <code>{uid}</code>\n"
@@ -843,6 +855,7 @@ async def clients_refs_browse(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(IsAdmin(), F.data.startswith("client_refs:"))
 async def client_refs_detail(callback: types.CallbackQuery, state: FSMContext):
+    from database_functions.anomalies_db import user_name_link
     from database_functions.client_db import get_user
     from database_functions.clients_admin_db import (
         get_referrer_for_friend,
@@ -857,16 +870,18 @@ async def client_refs_detail(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Не знайдено", show_alert=True)
         return
     name = user.get("display_name") or user.get("user_first_name") or uid
-    lines = [f"👥 <b>Реферали · {_esc(name)}</b>\n<code>{uid}</code>\n"]
+    lines = [
+        f"👥 <b>Реферали · {user_name_link(uid, name, user.get('user_name'))}</b>\n"
+        f"<code>{uid}</code>\n"
+    ]
     brought = get_referrer_for_friend(uid)
     if brought:
-        rname = brought.get("display_name") or brought.get("user_first_name") or brought.get(
-            "referrer_user_id"
-        )
+        rid = brought.get("referrer_user_id")
+        rname = brought.get("display_name") or brought.get("user_first_name") or rid
         rphone = (brought.get("user_phone") or "").strip()
         lines.append(
-            f"Цього клієнта привів: <b>{_esc(rname)}</b> "
-            f"<code>{brought.get('referrer_user_id')}</code>"
+            f"Цього клієнта привів: {user_name_link(rid, rname, brought.get('user_name'))} "
+            f"<code>{rid}</code>"
             + (f" · {_esc(rphone)}" if rphone else "")
             + f" · {_esc(brought.get('status'))}"
         )
@@ -886,12 +901,13 @@ async def client_refs_detail(callback: types.CallbackQuery, state: FSMContext):
     if friends:
         lines.append("")
         for fr in friends:
-            fname = fr.get("display_name") or fr.get("user_first_name") or fr.get("friend_user_id")
             fid = int(fr.get("friend_user_id") or 0)
+            fname = fr.get("display_name") or fr.get("user_first_name") or fid or "—"
             if fid and fid not in friend_ids:
                 friend_ids.append(fid)
             lines.append(
-                f"· {_esc(fname)} <code>{fr.get('friend_user_id')}</code> · {_esc(fr.get('status'))}"
+                f"· {user_name_link(fid or None, fname, fr.get('user_name'))} "
+                f"<code>{fr.get('friend_user_id')}</code> · {_esc(fr.get('status'))}"
             )
     # Keep ability to open related people without wiping list context parent
     data = await state.get_data()
@@ -1436,9 +1452,14 @@ async def client_history(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Клієнта не знайдено", show_alert=True)
         return
 
+    from database_functions.anomalies_db import user_name_link
+
     name = user.get("display_name") or user.get("user_first_name") or str(uid)
     browse = (await state.get_data()).get("clients_browse")
-    header = f"📜 <b>Історія · {_esc(name)}</b>\n<code>{uid}</code>\n"
+    header = (
+        f"📜 <b>Історія · {user_name_link(uid, name, user.get('user_name'))}</b>\n"
+        f"<code>{uid}</code>\n"
+    )
     kb = _history_kb(uid, user, browse, live=live)
 
     if not live:
@@ -1720,9 +1741,12 @@ async def client_gift_amount(message: types.Message, state: FSMContext):
     await state.set_state(None)
     if browse is not None:
         await state.update_data(clients_browse=browse)
+    from database_functions.anomalies_db import user_name_link
+
     name = user.get("display_name") or user.get("user_first_name") or str(uid)
     await message.answer(
-        f"✅ Нараховано <b>+{_uah(amount)}</b> Крафтиків клієнту <b>{_esc(name)}</b> "
+        f"✅ Нараховано <b>+{_uah(amount)}</b> Крафтиків клієнту "
+        f"{user_name_link(uid, name, user.get('user_name'))} "
         f"(<code>{uid}</code>).\n"
         f"Новий баланс: <b>{_uah(new_bal)}</b>",
         parse_mode="HTML",

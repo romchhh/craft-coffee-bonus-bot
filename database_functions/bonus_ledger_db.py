@@ -519,6 +519,170 @@ def fetch_purchases_by_tx_ids(tx_ids: list[str]) -> dict[str, dict]:
     return {str(r["transaction_id"]): dict(r) for r in rows}
 
 
+def _insert_posted_legacy(
+    *,
+    op_key: str,
+    user_id: int | None,
+    poster_client_id: int | None,
+    amount_uah: float,
+    reason: str,
+    title: str,
+    ref_type: str | None,
+    ref_id: str | None,
+    when: str,
+    meta: dict | None = None,
+) -> bool:
+    """Idempotent insert of an already-happened op (no Poster call)."""
+    if get_by_op_key(op_key):
+        return False
+    amount = round(float(amount_uah or 0), 2)
+    if abs(amount) < 0.005:
+        return False
+    cursor.execute(
+        """
+        INSERT INTO bonus_ledger (
+            op_key, user_id, poster_client_id, amount_uah, reason, status,
+            ref_type, ref_id, title, meta_json, created_at, updated_at, posted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            op_key,
+            int(user_id) if user_id is not None else None,
+            int(poster_client_id) if poster_client_id is not None else None,
+            amount,
+            reason,
+            STATUS_POSTED,
+            ref_type,
+            str(ref_id) if ref_id is not None else None,
+            title,
+            json.dumps(meta, ensure_ascii=False) if meta else None,
+            when,
+            when,
+            when,
+        ),
+    )
+    return True
+
+
+def backfill_user_ledger(user_id: int) -> dict[str, int]:
+    """Pull legacy purchases (+ welcome/birthday flags) into bonus_ledger for one client.
+
+    Safe / idempotent via op_key. Does not touch Poster.
+    """
+    uid = int(user_id)
+    added = {"cashback": 0, "spend": 0, "welcome": 0, "birthday": 0}
+
+    rows = cursor.execute(
+        """
+        SELECT transaction_id, poster_client_id, payed_sum_uah, bonus_uah, bonus_spent_uah,
+               processed_at, date_close, spot_name
+        FROM processed_transactions
+        WHERE telegram_user_id = ?
+        ORDER BY COALESCE(date_close, processed_at) ASC
+        """,
+        (uid,),
+    ).fetchall()
+
+    for r in rows:
+        tid = str(r["transaction_id"] or "").strip()
+        if not tid:
+            continue
+        when = (r["date_close"] or r["processed_at"] or kyiv_now_str())[:19]
+        poster_id = r["poster_client_id"]
+        bonus = float(r["bonus_uah"] or 0)
+        spent = float(r["bonus_spent_uah"] or 0)
+        meta = {
+            "legacy_backfill": True,
+            "payed_sum_uah": float(r["payed_sum_uah"] or 0),
+            "spot_name": r["spot_name"],
+        }
+        if bonus > 0.004:
+            if _insert_posted_legacy(
+                op_key=f"cashback:tx:{tid}",
+                user_id=uid,
+                poster_client_id=poster_id,
+                amount_uah=bonus,
+                reason=REASON_CASHBACK,
+                title=REASON_TITLES_UK[REASON_CASHBACK],
+                ref_type="transaction",
+                ref_id=tid,
+                when=when,
+                meta=meta,
+            ):
+                added["cashback"] += 1
+        if spent > 0.004:
+            if _insert_posted_legacy(
+                op_key=f"spend:tx:{tid}",
+                user_id=uid,
+                poster_client_id=poster_id,
+                amount_uah=-abs(spent),
+                reason=REASON_SPEND,
+                title=REASON_TITLES_UK[REASON_SPEND],
+                ref_type="transaction",
+                ref_id=tid,
+                when=when,
+                meta=meta,
+            ):
+                added["spend"] += 1
+
+    user = cursor.execute(
+        """
+        SELECT poster_client_id, welcome_bonus_given, birthday_bonus_given,
+               join_date, registered_at, last_activity
+        FROM users WHERE user_id = ?
+        """,
+        (uid,),
+    ).fetchone()
+    if user:
+        poster_id = user["poster_client_id"]
+        join_at = (user["registered_at"] or user["join_date"] or kyiv_now_str())[:19]
+        if int(user["welcome_bonus_given"] or 0):
+            try:
+                from database_functions.settings_db import get_welcome_bonus_uah
+
+                amt = float(get_welcome_bonus_uah())
+            except Exception:
+                amt = 0.0
+            if amt > 0 and _insert_posted_legacy(
+                op_key=f"legacy:welcome:{uid}",
+                user_id=uid,
+                poster_client_id=poster_id,
+                amount_uah=amt,
+                reason=REASON_WELCOME,
+                title=REASON_TITLES_UK[REASON_WELCOME],
+                ref_type="legacy",
+                ref_id=str(uid),
+                when=join_at,
+                meta={"legacy_backfill": True},
+            ):
+                added["welcome"] += 1
+        if int(user["birthday_bonus_given"] or 0):
+            try:
+                from database_functions.settings_db import get_birthday_bonus_uah
+
+                amt = float(get_birthday_bonus_uah())
+            except Exception:
+                amt = 0.0
+            when = (user["last_activity"] or join_at)[:19]
+            if amt > 0 and _insert_posted_legacy(
+                op_key=f"legacy:birthday:{uid}",
+                user_id=uid,
+                poster_client_id=poster_id,
+                amount_uah=amt,
+                reason=REASON_BIRTHDAY,
+                title=REASON_TITLES_UK[REASON_BIRTHDAY],
+                ref_type="legacy",
+                ref_id=str(uid),
+                when=when,
+                meta={"legacy_backfill": True},
+            ):
+                added["birthday"] += 1
+
+    if any(added.values()):
+        conn.commit()
+    return added
+
+
 def purchase_items_summary(products_json: object, *, max_items: int = 4) -> str:
     """Short human line from products_json, e.g. «Капучино, Круасан»."""
     import json

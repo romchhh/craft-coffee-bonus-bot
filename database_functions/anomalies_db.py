@@ -132,11 +132,13 @@ def enrich_with_users(rows: list[dict]) -> list[dict]:
                 or u.get("user_first_name")
                 or str(uid)
             )
+            item["username"] = (u.get("user_name") or "").strip().lstrip("@")
             item["phone"] = u.get("user_phone") or ""
             item["blocked"] = bool(int(u.get("bonuses_blocked") or 0))
             item["card"] = u.get("card_number") or ""
         else:
             item["name"] = str(uid or "—")
+            item["username"] = ""
             item["phone"] = ""
             item["blocked"] = False
             item["card"] = ""
@@ -153,10 +155,29 @@ def _esc(s: object) -> str:
     )
 
 
-def user_name_link(user_id: object, name: object) -> str:
-    """Display name only — no tg://user mention (mentions can notify the client)."""
+def user_name_link(
+    user_id: object,
+    name: object,
+    username: object = None,
+    *,
+    link: bool = True,
+) -> str:
+    """Clickable client name for admin HTML messages.
+
+    Prefer https://t.me/username (no text-mention ping). Fallback tg://user?id=.
+    Pass link=False for push alerts so clients are not notified about mentions.
+    """
     label = _esc(str(name or user_id or "—").strip() or "—")
-    return f"<b>{label}</b>"
+    if not link:
+        return f"<b>{label}</b>"
+    uname = str(username or "").strip().lstrip("@")
+    if uname and all(ch.isalnum() or ch == "_" for ch in uname):
+        return f'<a href="https://t.me/{uname}"><b>{label}</b></a>'
+    try:
+        uid = int(user_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return f"<b>{label}</b>"
+    return f'<a href="tg://user?id={uid}"><b>{label}</b></a>'
 
 
 def build_anomalies_report() -> str:
@@ -170,7 +191,7 @@ def build_anomalies_report() -> str:
         for r in freq:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}{user_name_link(r['user_id'], r['name'])} · id <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'], r.get('username'))} · id <code>{r['user_id']}</code> · "
                 f"{r['cnt']}× · +{r['total_bonus']:g} · чеки {r['total_payed']:g} грн"
             )
 
@@ -182,7 +203,7 @@ def build_anomalies_report() -> str:
         for r in week:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'], r.get('username'))} · <code>{r['user_id']}</code> · "
                 f"+{r['total_bonus']:g} ({r['cnt']} чеків)"
             )
 
@@ -194,7 +215,7 @@ def build_anomalies_report() -> str:
         for r in micro:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'], r.get('username'))} · <code>{r['user_id']}</code> · "
                 f"{r['cnt']}× · сума {r['total_payed']:g}"
             )
 
@@ -206,7 +227,7 @@ def build_anomalies_report() -> str:
         for r in refs_day:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'], r.get('username'))} · <code>{r['user_id']}</code> · "
                 f"друзів сьогодні {r['cnt']}"
             )
 
@@ -218,7 +239,7 @@ def build_anomalies_report() -> str:
         for r in refs:
             flag = "🚫 " if r["blocked"] else ""
             lines.append(
-                f"· {flag}{user_name_link(r['user_id'], r['name'])} · <code>{r['user_id']}</code> · "
+                f"· {flag}{user_name_link(r['user_id'], r['name'], r.get('username'))} · <code>{r['user_id']}</code> · "
                 f"друзів {r['cnt']} · paid {r['paid_cnt']} · review {r['review_cnt']}"
             )
 

@@ -332,7 +332,7 @@ def list_friends_of_referrer(referrer_user_id: int, *, limit: int = 30) -> list[
         """
         SELECT
             r.*,
-            u.display_name, u.user_first_name, u.user_phone, u.join_date
+            u.display_name, u.user_first_name, u.user_phone, u.user_name, u.join_date
         FROM referrals r
         LEFT JOIN users u ON u.user_id = r.friend_user_id
         WHERE r.referrer_user_id = ?

@@ -296,6 +296,18 @@ async def loyalty_save_cashback(message: types.Message, state: FSMContext):
 def _referral_review_text(items: list) -> str:
     if not items:
         return "👥 <b>Реферали на перевірці</b>\n\nЧерга порожня."
+    from database_functions.anomalies_db import user_name_link
+    from database_functions.client_db import get_user
+
+    def _who(uid) -> str:
+        try:
+            iuid = int(uid)
+        except (TypeError, ValueError):
+            return f"<code>{uid}</code>"
+        u = get_user(iuid) or {}
+        name = u.get("display_name") or u.get("user_first_name") or iuid
+        return f"{user_name_link(iuid, name, u.get('user_name'))} <code>{iuid}</code>"
+
     lines = [
         "👥 <b>Реферали на перевірці</b>",
         "З 6-го успішного запрошення за день — ручне підтвердження адміністратором.",
@@ -303,8 +315,8 @@ def _referral_review_text(items: list) -> str:
     ]
     for ref in items[:20]:
         lines.append(
-            f"• #{ref.get('id')}: друг <code>{ref.get('friend_user_id')}</code> ← "
-            f"<code>{ref.get('referrer_user_id')}</code> · "
+            f"• #{ref.get('id')}: друг {_who(ref.get('friend_user_id'))} ← "
+            f"{_who(ref.get('referrer_user_id'))} · "
             f"+{float(ref.get('amount_uah') or 0):g} · чек {ref.get('qualifying_tx_id') or '—'}"
         )
     return "\n".join(lines)

@@ -74,7 +74,7 @@ def _client_label(uid: object, users: dict[int, dict] | None = None) -> str:
         or (f"@{u['user_name']}" if u.get("user_name") else None)
         or str(iuid)
     )
-    return user_name_link(iuid, name)
+    return user_name_link(iuid, name, u.get("user_name"))
 
 
 def _purchase_line(row: dict, purchases: dict[str, dict] | None = None) -> str:
@@ -316,9 +316,30 @@ async def _render_list(
         )
     )
     if not rows and total == 0:
-        await callback.answer("Записів немає", show_alert=True)
-        text = f"{title}\n\nПоки немає операцій у журналі."
-        await _edit_or_send(callback.message, text, get_ledger_hub_keyboard())
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        await callback.answer("Записів немає")
+        text = (
+            f"{title}\n\nПоки немає операцій у журналі.\n"
+            "<i>Якщо в історії покупок є чеки — вони мали підтягнутись автоматично. "
+            "Перевір «Історію покупок» у картці клієнта.</i>"
+        )
+        kb_rows: list[list[InlineKeyboardButton]] = []
+        if user_id is not None:
+            kb_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="👤 Картка клієнта",
+                        callback_data=f"client_view:{int(user_id)}",
+                    )
+                ]
+            )
+        kb_rows.append(
+            [InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")]
+        )
+        await _edit_or_send(
+            callback.message, text, InlineKeyboardMarkup(inline_keyboard=kb_rows)
+        )
         return
 
     users, purchases = await asyncio.to_thread(_enrich_page, rows)
@@ -494,6 +515,17 @@ async def ledger_by_user(callback: types.CallbackQuery):
     except (ValueError, IndexError):
         await callback.answer("Помилка", show_alert=True)
         return
+    # Старі чеки жили лише в processed_transactions — підтягуємо в journal.
+    if offset == 0:
+        try:
+            from database_functions.bonus_ledger_db import backfill_user_ledger
+
+            added = await asyncio.to_thread(backfill_user_ledger, uid)
+            n = sum(added.values()) if isinstance(added, dict) else 0
+            if n:
+                log.info("ledger backfill user=%s added=%s", uid, added)
+        except Exception as exc:
+            log.warning("ledger backfill user=%s failed: %s", uid, exc)
     await _render_list(
         callback,
         offset=offset,
