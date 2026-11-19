@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 BASE = "https://walletobjects.googleapis.com/walletobjects/v1"
 SCOPES = ["https://www.googleapis.com/auth/wallet_object.issuer"]
-BARCODE_TYPE = "CODE_128"
+BARCODE_TYPE = "QR_CODE"  # номер картки в QR (мініап лишає штрихкод)
 ISSUER_NAME = "Крафт Кава"
 PROGRAM_NAME = "Бонусна картка Крафт Кава"
 

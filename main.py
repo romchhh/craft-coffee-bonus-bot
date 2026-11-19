@@ -54,6 +54,10 @@ def _wire_routers() -> None:
 
 
 async def main() -> None:
+    from utils.admin_menu import ClearStateOnAdminMenuMiddleware
+
+    # Reset FSM when admin taps another reply-keyboard section (Посилання, Клієнти, …)
+    dp.message.middleware(ClearStateOnAdminMenuMiddleware())
     _wire_routers()
     await dp.start_polling(bot, skip_updates=True)
 

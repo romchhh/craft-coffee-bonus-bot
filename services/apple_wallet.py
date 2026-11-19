@@ -161,7 +161,6 @@ def build_pass_json(
     bonus: float,
     authentication_token: str | None = None,
 ) -> dict:
-    barcode_format = "PKBarcodeFormatEAN" if len(card_number) == 13 and card_number.isdigit() else "PKBarcodeFormatCode128"
     data: dict = {
         "formatVersion": 1,
         "passTypeIdentifier": APPLE_PASS_TYPE_ID,
@@ -173,9 +172,10 @@ def build_pass_json(
         "foregroundColor": "rgb(53, 34, 26)",
         "backgroundColor": "rgb(248, 245, 238)",
         "labelColor": "rgb(122, 101, 88)",
+        # QR з номером картки (мініап лишає штрихкод окремо)
         "barcodes": [
             {
-                "format": barcode_format,
+                "format": "PKBarcodeFormatQR",
                 "message": card_number,
                 "messageEncoding": "iso-8859-1",
                 "altText": _barcode_alt_text(card_number),

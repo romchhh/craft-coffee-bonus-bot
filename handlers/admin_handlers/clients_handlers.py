@@ -16,6 +16,7 @@ from keyboards.admin_keyboards import (
     get_clients_spot_filter_keyboard,
     get_referrals_browse_keyboard,
 )
+from utils.admin_menu import ADMIN_MENU_TEXTS
 from states.admin_states import ClientAdmin
 from utils.filters import IsAdmin
 
@@ -74,7 +75,7 @@ def _back_label_for_browse(browse: dict | None) -> str:
         "recent": "◀️ До останніх",
         "blocked": "◀️ До заблокованих",
         "refs": "◀️ До рефералів",
-        "anomaly": "🏠 Меню клієнтів",
+        "anomaly": "◀️ До аномалій",
     }.get(mode, "◀️ Назад")
 
 
@@ -259,7 +260,18 @@ def _build_client_card_sync(
     if int(user.get("birthday_bonus_given") or 0):
         flags.append("ДН ✓")
     if mailing_off:
-        flags.append("розсилка ✗")
+        from database_functions.client_db import OPT_OUT_REASON_LABELS_UK
+
+        reason_raw = (user.get("mailing_opt_out_reason") or "").strip()
+        reason_uk = OPT_OUT_REASON_LABELS_UK.get(reason_raw, reason_raw or "відписка")
+        at = format_dt_ua(user.get("mailing_opt_out_at"), empty="")
+        flags.append(
+            f"розсилка ✗ ({reason_uk}" + (f", {at}" if at else "") + ")"
+        )
+    if user.get("card_deleted_at"):
+        flags.append(
+            f"картку видалено {format_dt_ua(user.get('card_deleted_at'), empty='')}"
+        )
     flags_s = ", ".join(flags) if flags else "—"
 
     last_buy = format_dt_ua(stats.get("last_purchase_at"))
@@ -744,7 +756,7 @@ async def clients_filter_product(callback: types.CallbackQuery, state: FSMContex
     await callback.answer()
 
 
-@router.message(IsAdmin(), ClientAdmin.filter_product, F.text)
+@router.message(IsAdmin(), ClientAdmin.filter_product, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def clients_filter_product_query(message: types.Message, state: FSMContext):
     raw = (message.text or "").strip()
     if raw.lower() in {"скасувати", "cancel", "/cancel"}:
@@ -941,7 +953,7 @@ async def clients_search_start(callback: types.CallbackQuery, state: FSMContext)
     await callback.answer()
 
 
-@router.message(IsAdmin(), ClientAdmin.search, F.text)
+@router.message(IsAdmin(), ClientAdmin.search, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def clients_search_query(message: types.Message, state: FSMContext):
     from database_functions.client_db import search_clients
     from database_functions.clients_admin_db import enrich_clients_list_metrics
@@ -1069,7 +1081,7 @@ async def clients_anomalies(callback: types.CallbackQuery, state: FSMContext):
         for uid, name in clients
     ]
     rows.append(
-        [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")]
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="clients_hub")]
     )
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
@@ -1266,6 +1278,9 @@ async def clients_back(callback: types.CallbackQuery, state: FSMContext):
         callback.data = f"clients_refs:{offset}"
         await clients_refs_browse(callback, state)
         return
+    if mode == "anomaly":
+        await clients_anomalies(callback, state)
+        return
     await clients_hub_cb(callback, state)
 
 
@@ -1414,26 +1429,30 @@ def _format_local_history(uid: int, header: str) -> str | None:
 def _history_kb(uid: int, user: dict, browse: dict | None, *, live: bool = False):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-    nav_label, has_prev, has_next = _browse_nav_meta(browse)
-    base = get_client_card_keyboard(
-        uid,
-        blocked=bool(int(user.get("bonuses_blocked") or 0)),
-        nav_label=nav_label,
-        has_prev=has_prev,
-        has_next=has_next,
-        back_label=_back_label_for_browse(browse),
-    )
-    rows = list(base.inline_keyboard)
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="◀️ До картки", callback_data=f"client_view:{uid}")],
+    ]
     if not live and user.get("poster_client_id"):
-        rows.insert(
-            0,
+        rows.append(
             [
                 InlineKeyboardButton(
                     text="📡 Історія з Poster (повільно)",
                     callback_data=f"client_hist_live:{uid}",
                 )
-            ],
+            ]
         )
+    rows.append(
+        [
+            InlineKeyboardButton(text="📒 Операції", callback_data=f"ledger_user:{uid}:0"),
+            InlineKeyboardButton(text="🔄 Оновити", callback_data=f"client_hist:{uid}"),
+        ]
+    )
+    rows.append(
+        [InlineKeyboardButton(text=_back_label_for_browse(browse), callback_data="clients_back")]
+    )
+    rows.append(
+        [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1654,7 +1673,7 @@ async def client_gift_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.message(IsAdmin(), ClientAdmin.gift_amount, F.text)
+@router.message(IsAdmin(), ClientAdmin.gift_amount, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def client_gift_amount(message: types.Message, state: FSMContext):
     from database_functions.client_db import get_user
     from services import poster
@@ -1795,7 +1814,7 @@ async def client_cashback_start(callback: types.CallbackQuery, state: FSMContext
     await callback.answer()
 
 
-@router.message(IsAdmin(), ClientAdmin.cashback_percent, F.text)
+@router.message(IsAdmin(), ClientAdmin.cashback_percent, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def client_cashback_set(message: types.Message, state: FSMContext):
     from database_functions.client_db import get_user, set_personal_cashback_percent
     from database_functions import bonus_ledger_db as ldb

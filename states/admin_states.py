@@ -6,6 +6,10 @@ class Mailing(StatesGroup):
     media = State()
     description = State()
     url_buttons = State()
+    track_buttons = State()
+    audience = State()
+    audience_products = State()
+    audience_days = State()
 
 
 class LinkStates(StatesGroup):

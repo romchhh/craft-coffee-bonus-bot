@@ -6,6 +6,8 @@ from datetime import datetime
 
 from database_functions.client_db import (
     card_age_days,
+    claim_birthday_bonus_slot,
+    clear_birthday_bonus_given,
     get_user,
     mark_annual_birthday_year,
     mark_birthday_bonus_given,
@@ -37,6 +39,9 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     if amount <= 0 or not poster_client_id:
         mark_birthday_bonus_given(user_id)
         return 0.0
+    # Claim slot first — blocks parallel /me + save-birthday double grant
+    if not claim_birthday_bonus_slot(user_id):
+        return 0.0
     from database_functions import bonus_ledger_db as ldb
     from services.bonus_ops import apply_bonus_delta
 
@@ -51,8 +56,13 @@ def grant_birthday_bonus(user_id: int, poster_client_id: int | None) -> float:
     )
     if result.get("status") != "ok":
         log.warning("birthday bonus failed user=%s: %s", user_id, result)
+        # Allow retry later if Poster/ledger failed (and nothing was posted)
+        if not result.get("already_posted"):
+            try:
+                clear_birthday_bonus_given(user_id)
+            except Exception:
+                pass
         raise RuntimeError(result.get("error") or "birthday_bonus_failed")
-    mark_birthday_bonus_given(user_id)
     touch_bonus_accrual(user_id)
     try:
         from services.wallet_sync import sync_wallets_for_user

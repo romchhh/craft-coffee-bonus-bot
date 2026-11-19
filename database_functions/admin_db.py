@@ -21,11 +21,11 @@ def get_all_user_ids():
     return user_ids
 
 
-def get_mailing_recipient_ids():
+def get_mailing_recipient_ids(**kwargs):
     """Recipients for admin broadcasts (excludes mailing opt-out)."""
     from database_functions.client_db import get_mailing_recipient_ids as _recipients
 
-    return _recipients()
+    return _recipients(**kwargs)
 
 
 def get_all_users_data():

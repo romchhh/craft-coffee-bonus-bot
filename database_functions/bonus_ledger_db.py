@@ -256,6 +256,7 @@ def list_admin(
     status: str | None = None,
     user_id: int | None = None,
     admin_only: bool = False,
+    include_void: bool = False,
 ) -> tuple[list[dict], int]:
     """Paginated factual journal for admin. Returns (rows, total)."""
     where: list[str] = ["1=1"]
@@ -266,6 +267,9 @@ def list_admin(
     if status:
         where.append("status = ?")
         params.append(status)
+    elif not include_void:
+        where.append("status != ?")
+        params.append(STATUS_VOID)
     if user_id is not None:
         where.append("user_id = ?")
         params.append(int(user_id))
@@ -482,8 +486,13 @@ ADMIN_FILTER_REASONS: list[str] = [
 
 def history_title(row: dict) -> str:
     if row.get("title"):
-        return str(row["title"])
-    return REASON_TITLES_UK.get(str(row.get("reason") or ""), "Операція з Крафтиками")
+        title = str(row["title"])
+    else:
+        title = REASON_TITLES_UK.get(str(row.get("reason") or ""), "Операція з Крафтиками")
+    op_key = str(row.get("op_key") or "")
+    if op_key.startswith("legacy:"):
+        title = f"{title} (архівний запис)"
+    return title
 
 
 def fetch_users_brief(user_ids: list[int]) -> dict[int, dict]:
@@ -636,7 +645,23 @@ def backfill_user_ledger(user_id: int) -> dict[str, int]:
     if user:
         poster_id = user["poster_client_id"]
         join_at = (user["registered_at"] or user["join_date"] or kyiv_now_str())[:19]
-        if int(user["welcome_bonus_given"] or 0):
+
+        def _has_real_reason(reason: str) -> bool:
+            row = cursor.execute(
+                """
+                SELECT 1 FROM bonus_ledger
+                WHERE user_id = ?
+                  AND reason = ?
+                  AND IFNULL(op_key, '') NOT LIKE 'legacy:%'
+                  AND status = ?
+                LIMIT 1
+                """,
+                (uid, reason, STATUS_POSTED),
+            ).fetchone()
+            return bool(row)
+
+        # Never invent a second ДН/welcome row if a real ledger op already exists
+        if int(user["welcome_bonus_given"] or 0) and not _has_real_reason(REASON_WELCOME):
             try:
                 from database_functions.settings_db import get_welcome_bonus_uah
 
@@ -656,7 +681,7 @@ def backfill_user_ledger(user_id: int) -> dict[str, int]:
                 meta={"legacy_backfill": True},
             ):
                 added["welcome"] += 1
-        if int(user["birthday_bonus_given"] or 0):
+        if int(user["birthday_bonus_given"] or 0) and not _has_real_reason(REASON_BIRTHDAY):
             try:
                 from database_functions.settings_db import get_birthday_bonus_uah
 
@@ -678,9 +703,59 @@ def backfill_user_ledger(user_id: int) -> dict[str, int]:
             ):
                 added["birthday"] += 1
 
-    if any(added.values()):
+    voided = void_legacy_duplicates_for_user(uid)
+    added["voided_legacy"] = voided
+
+    if any(v for k, v in added.items() if k != "voided_legacy") or voided:
         conn.commit()
     return added
+
+
+def void_legacy_duplicates_for_user(user_id: int) -> int:
+    """Void phantom legacy:* rows when a real op of the same reason already exists.
+
+    Backfill used to create legacy:birthday / legacy:welcome even after a live grant —
+    that looked like a double birthday bonus in the journal (Poster was not credited twice).
+    """
+    uid = int(user_id)
+    now = kyiv_now_str()
+    voided = 0
+    for reason, legacy_prefix in (
+        (REASON_BIRTHDAY, "legacy:birthday:"),
+        (REASON_WELCOME, "legacy:welcome:"),
+    ):
+        has_real = cursor.execute(
+            """
+            SELECT 1 FROM bonus_ledger
+            WHERE user_id = ?
+              AND reason = ?
+              AND IFNULL(op_key, '') NOT LIKE 'legacy:%'
+              AND status = ?
+            LIMIT 1
+            """,
+            (uid, reason, STATUS_POSTED),
+        ).fetchone()
+        if not has_real:
+            continue
+        cur = cursor.execute(
+            """
+            UPDATE bonus_ledger
+            SET status = ?, updated_at = ?,
+                error = COALESCE(error, '') || CASE
+                    WHEN IFNULL(error,'') = '' THEN 'void:legacy_duplicate'
+                    ELSE ''
+                END
+            WHERE user_id = ?
+              AND reason = ?
+              AND status = ?
+              AND op_key LIKE ?
+            """,
+            (STATUS_VOID, now, uid, reason, STATUS_POSTED, f"{legacy_prefix}%"),
+        )
+        voided += int(cur.rowcount or 0)
+    if voided:
+        conn.commit()
+    return voided
 
 
 def purchase_items_summary(products_json: object, *, max_items: int = 4) -> str:

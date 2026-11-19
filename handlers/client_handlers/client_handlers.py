@@ -553,6 +553,114 @@ async def about(message: types.Message):
     )
 
 
+@router.message(F.text == "🎯 Квести")
+async def quests_menu(message: types.Message):
+    await _ensure_user(message)
+    if not is_registered(message.from_user.id):
+        await _prompt_need_card(message)
+        return
+    from database_functions import quest_campaigns_db as qcdb
+    from services.quests import build_quests_ui, quests_runtime_enabled
+
+    camps = qcdb.list_active_campaigns()
+    for c in camps:
+        try:
+            qcdb.log_campaign_event(int(c["id"]), int(message.from_user.id), "view")
+        except Exception:
+            pass
+
+    if not camps and not quests_runtime_enabled():
+        await message.answer(
+            "🎯 <b>Квести</b>\n\n"
+            "Зараз активних акцій немає — скоро зʼявляться сезонні квести.\n"
+            "Слідкуй за розсилкою Крафт Кава.",
+            parse_mode="HTML",
+        )
+        return
+
+    ui = await asyncio.to_thread(build_quests_ui, message.from_user.id)
+    lines = ["🎯 <b>Квести та акції</b>", ""]
+    if camps:
+        lines.append("<b>Зараз активні:</b>")
+        for c in camps:
+            end = c.get("ends_at")
+            tail = f" · до {html.escape(str(end))}" if end else ""
+            lines.append(f"• <b>{html.escape(c.get('title') or '')}</b>{tail}")
+            if c.get("description"):
+                lines.append(f"  <i>{html.escape(c['description'])}</i>")
+        lines.append("")
+    active = ui.get("active") or []
+    done = ui.get("done") or []
+    if active:
+        lines.append("<b>Твій прогрес:</b>")
+        for q in active[:8]:
+            lines.append(
+                f"• {html.escape(q.get('title') or q.get('key') or '')}: "
+                f"<b>{q.get('progress', 0):g}/{q.get('target', 1):g}</b>"
+                f" · +{float(q.get('reward_uah') or 0):g} К"
+            )
+    elif done:
+        lines.append("Усі поточні квести виконано ✅")
+    else:
+        lines.append("Зроби покупку з карткою — прогрес зʼявиться тут.")
+    if WEBAPP_URL:
+        lines.append("")
+        lines.append("Деталі також у мініапі (вкладка квестів).")
+    kb = None
+    if WEBAPP_URL:
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Відкрити в мініапі",
+                        web_app=WebAppInfo(url=f"{WEBAPP_URL}/quests"),
+                    )
+                ]
+            ]
+        )
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mb:"))
+async def mailing_button_click(callback: types.CallbackQuery):
+    """Track poll-button clicks from broadcasts: mb:{job_id}:{btn_key}."""
+    from database_functions import mailing_jobs_db as mdb
+    import json
+
+    parts = (callback.data or "").split(":")
+    if len(parts) < 3:
+        await callback.answer()
+        return
+    try:
+        job_id = int(parts[1])
+        btn_key = parts[2]
+    except ValueError:
+        await callback.answer()
+        return
+    _ensure_user_from_tg(callback.from_user)
+    label = btn_key
+    try:
+        job = mdb.get_job(job_id)
+        if job:
+            payload = json.loads(job.get("payload_json") or "{}")
+            for row in payload.get("track_buttons") or []:
+                for b in row:
+                    if b.get("key") == btn_key:
+                        label = b.get("label") or btn_key
+                        break
+    except Exception:
+        pass
+    first = mdb.record_button_click(
+        job_id, btn_key, callback.from_user.id, btn_label=label
+    )
+    if first:
+        await callback.answer(f"Вибір збережено: {label}", show_alert=False)
+    else:
+        await callback.answer("Вже враховано ✓")
+
+
 @router.message(F.text.in_(["🎁 Гривні", "🎁 Бонуси", "🎁 Крафтики"]))
 async def bonuses_info(message: types.Message):
     await _ensure_user(message)
@@ -615,8 +723,10 @@ async def info_menu(message: types.Message):
         await _prompt_need_card(message)
         return
     cmd = (message.text or "").strip().lower()
+    from database_functions.client_db import OPT_OUT_USER
+
     if cmd.startswith("/unsubscribe"):
-        set_mailing_opt_out(message.from_user.id, True)
+        set_mailing_opt_out(message.from_user.id, True, reason=OPT_OUT_USER)
     elif cmd.startswith("/subscribe"):
         set_mailing_opt_out(message.from_user.id, False)
     await _show_info(message)
@@ -637,8 +747,10 @@ def _ensure_user_from_tg(user: types.User) -> None:
 
 @router.callback_query(F.data == "mailing_opt_out")
 async def mailing_opt_out_cb(callback: types.CallbackQuery):
+    from database_functions.client_db import OPT_OUT_USER
+
     _ensure_user_from_tg(callback.from_user)
-    set_mailing_opt_out(callback.from_user.id, True)
+    set_mailing_opt_out(callback.from_user.id, True, reason=OPT_OUT_USER)
     await callback.answer("Відписано від розсилки", show_alert=True)
     try:
         await callback.message.edit_text(

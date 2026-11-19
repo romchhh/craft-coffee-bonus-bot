@@ -56,6 +56,11 @@ def _migrate():
         "referral_click_at": "TEXT",
         # 0 = receives admin broadcasts; 1 = opted out of promotional mailing
         "mailing_opt_out": "INTEGER DEFAULT 0",
+        "mailing_opt_out_at": "TEXT",
+        # user_opt_out | broadcast_button | admin | bot_blocked | card_deleted
+        "mailing_opt_out_reason": "TEXT",
+        # Soft mark if loyalty card was removed / wiped (vs mailing opt-out only)
+        "card_deleted_at": "TEXT",
         # 1 = cashback / auto Крафтики accrual blocked (admin)
         "bonuses_blocked": "INTEGER DEFAULT 0",
         # When the loyalty card was first issued (fallback: join_date)
@@ -347,6 +352,28 @@ def mark_birthday_bonus_given(user_id: int | str) -> None:
     conn.commit()
 
 
+def claim_birthday_bonus_slot(user_id: int | str) -> bool:
+    """Atomically claim one-time birthday bonus. True only for the first caller."""
+    cursor.execute(
+        """
+        UPDATE users
+        SET birthday_bonus_given = 1, last_activity = ?
+        WHERE user_id = ? AND COALESCE(birthday_bonus_given, 0) = 0
+        """,
+        (kyiv_now_str(), user_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def clear_birthday_bonus_given(user_id: int | str) -> None:
+    cursor.execute(
+        "UPDATE users SET birthday_bonus_given = 0, last_activity = ? WHERE user_id = ?",
+        (kyiv_now_str(), user_id),
+    )
+    conn.commit()
+
+
 def mark_referral_bonus_paid(user_id: int | str) -> None:
     cursor.execute(
         "UPDATE users SET referral_bonus_paid = 1, last_activity = ? WHERE user_id = ?",
@@ -442,16 +469,85 @@ def get_username_by_user_id(user_id: str):
     return result[0] if result else None
 
 
+OPT_OUT_USER = "user_opt_out"
+OPT_OUT_BROADCAST = "broadcast_button"
+OPT_OUT_ADMIN = "admin"
+OPT_OUT_BOT_BLOCKED = "bot_blocked"
+OPT_OUT_CARD_DELETED = "card_deleted"
+
+OPT_OUT_REASON_LABELS_UK = {
+    OPT_OUT_USER: "Відписка від розсилки",
+    OPT_OUT_BROADCAST: "Кнопка в розсилці",
+    OPT_OUT_ADMIN: "Адмін",
+    OPT_OUT_BOT_BLOCKED: "Заблокував бота",
+    OPT_OUT_CARD_DELETED: "Видалив картку",
+}
+
+
 def is_mailing_opted_out(user_id: int | str) -> bool:
     user = get_user(user_id)
     return bool(user and int(user.get("mailing_opt_out") or 0) == 1)
 
 
-def set_mailing_opt_out(user_id: int | str, opted_out: bool) -> None:
-    cursor.execute(
-        "UPDATE users SET mailing_opt_out = ?, last_activity = ? WHERE user_id = ?",
-        (1 if opted_out else 0, kyiv_now_str(), user_id),
-    )
+def set_mailing_opt_out(
+    user_id: int | str,
+    opted_out: bool,
+    *,
+    reason: str | None = None,
+) -> None:
+    now = kyiv_now_str()
+    if opted_out:
+        cursor.execute(
+            """
+            UPDATE users
+            SET mailing_opt_out = 1,
+                mailing_opt_out_at = ?,
+                mailing_opt_out_reason = ?,
+                last_activity = ?
+            WHERE user_id = ?
+            """,
+            (now, reason or OPT_OUT_USER, now, user_id),
+        )
+    else:
+        cursor.execute(
+            """
+            UPDATE users
+            SET mailing_opt_out = 0,
+                mailing_opt_out_at = NULL,
+                mailing_opt_out_reason = NULL,
+                last_activity = ?
+            WHERE user_id = ?
+            """,
+            (now, user_id),
+        )
+    conn.commit()
+
+
+def mark_card_deleted(user_id: int | str, *, also_opt_out: bool = True) -> None:
+    """Mark loyalty card as removed (distinct from mailing-only opt-out)."""
+    now = kyiv_now_str()
+    if also_opt_out:
+        cursor.execute(
+            """
+            UPDATE users
+            SET card_deleted_at = ?,
+                mailing_opt_out = 1,
+                mailing_opt_out_at = COALESCE(mailing_opt_out_at, ?),
+                mailing_opt_out_reason = ?,
+                last_activity = ?
+            WHERE user_id = ?
+            """,
+            (now, now, OPT_OUT_CARD_DELETED, now, user_id),
+        )
+    else:
+        cursor.execute(
+            """
+            UPDATE users
+            SET card_deleted_at = ?, last_activity = ?
+            WHERE user_id = ?
+            """,
+            (now, now, user_id),
+        )
     conn.commit()
 
 
@@ -462,15 +558,89 @@ def count_mailing_opted_out() -> int:
     return int(row[0] or 0)
 
 
-def get_mailing_recipient_ids() -> list[int]:
-    """Users who still accept promotional bot broadcasts."""
-    rows = cursor.execute(
-        """
-        SELECT user_id FROM users
-        WHERE COALESCE(mailing_opt_out, 0) = 0
-          AND user_id IS NOT NULL
-        """
-    ).fetchall()
+def get_mailing_recipient_ids(
+    *,
+    audience: str = "all",
+    spot_names: list[str] | None = None,
+    product_qs: list[str] | None = None,
+    days_min: int | None = None,
+    days_max: int | None = None,
+    explicit_ids: list[int] | None = None,
+) -> list[int]:
+    """Users who still accept promotional broadcasts, optionally filtered.
+
+    audience:
+      - all — everyone not opted out (registered preferred)
+      - test — admins only
+      - segment — filters below (spots OR, products AND, tenure days)
+    """
+    audience = (audience or "all").strip().lower()
+    if audience == "test":
+        from database_functions.admin_db import get_all_administrators
+
+        admins = [int(x) for x in (get_all_administrators() or []) if x]
+        return sorted(set(admins))
+
+    if explicit_ids is not None:
+        ids = [int(x) for x in explicit_ids if x is not None]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        rows = cursor.execute(
+            f"""
+            SELECT user_id FROM users
+            WHERE user_id IN ({placeholders})
+              AND COALESCE(mailing_opt_out, 0) = 0
+            """,
+            ids,
+        ).fetchall()
+        return [int(r[0]) for r in rows if r[0] is not None]
+
+    spots = [s.strip() for s in (spot_names or []) if s and str(s).strip()]
+    products = [p.strip() for p in (product_qs or []) if p and str(p).strip()]
+    where = [
+        "COALESCE(u.mailing_opt_out, 0) = 0",
+        "u.user_id IS NOT NULL",
+        "COALESCE(u.registered, 0) = 1",
+        "u.card_deleted_at IS NULL",
+    ]
+    params: list = []
+
+    if spots:
+        ph = ",".join("?" * len(spots))
+        where.append(
+            f"""
+            EXISTS (
+              SELECT 1 FROM processed_transactions pt
+              WHERE pt.telegram_user_id = u.user_id
+                AND IFNULL(pt.spot_name, '') IN ({ph})
+            )
+            """
+        )
+        params.extend(spots)
+
+    for pq in products:
+        where.append(
+            """
+            EXISTS (
+              SELECT 1 FROM processed_transactions pt
+              WHERE pt.telegram_user_id = u.user_id
+                AND IFNULL(pt.products_json, '') LIKE ?
+            )
+            """
+        )
+        params.append(f"%{pq}%")
+
+    join_expr = "COALESCE(NULLIF(u.registered_at, ''), NULLIF(u.join_date, ''), '1970-01-01')"
+    if days_min is not None:
+        where.append(f"(julianday('now', 'localtime') - julianday({join_expr})) >= ?")
+        params.append(float(days_min))
+    if days_max is not None:
+        where.append(f"(julianday('now', 'localtime') - julianday({join_expr})) <= ?")
+        params.append(float(days_max))
+
+    sql = f"SELECT u.user_id FROM users u WHERE {' AND '.join(where)}"
+    rows = cursor.execute(sql, params).fetchall()
     return [int(r[0]) for r in rows if r[0] is not None]
 
 

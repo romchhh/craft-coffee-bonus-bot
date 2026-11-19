@@ -232,6 +232,20 @@ def _days_reward_for_step(step: int) -> float:
     return 0.0
 
 
+def quests_runtime_enabled() -> bool:
+    """True if env flag on or at least one campaign is active."""
+    from config import QUESTS_ENABLED
+
+    if QUESTS_ENABLED:
+        return True
+    try:
+        from database_functions.quest_campaigns_db import list_active_campaigns
+
+        return bool(list_active_campaigns())
+    except Exception:
+        return False
+
+
 def on_purchase_for_quests(
     telegram_user_id: int,
     tx: dict,
@@ -239,10 +253,8 @@ def on_purchase_for_quests(
     closed_at: datetime | None = None,
 ) -> list[dict]:
     """Update quest progress after a closed receipt."""
-    from config import QUESTS_ENABLED
-
     # Keep function for later Mini App quests; do not progress or pay while disabled.
-    if not QUESTS_ENABLED:
+    if not quests_runtime_enabled():
         return []
 
     user = get_user(telegram_user_id)
@@ -471,21 +483,44 @@ def on_purchase_for_quests(
                 meta={"pending": pending},
             )
 
+    # Історія акцій: фіксуємо завершення під активні кампанії
+    try:
+        from database_functions import quest_campaigns_db as camp_db
+
+        active_camps = camp_db.list_active_campaigns()
+        for ev in events:
+            if not ev.get("completed"):
+                continue
+            qkey = str(ev.get("quest_key") or "")
+            for camp in active_camps:
+                keys = camp.get("quest_keys") or []
+                if keys and qkey not in keys:
+                    continue
+                camp_db.log_campaign_event(
+                    int(camp["id"]),
+                    uid,
+                    "complete",
+                    quest_key=qkey,
+                    meta={"title": ev.get("title"), "reward_uah": ev.get("reward_uah")},
+                )
+    except Exception:
+        pass
+
     return events
 
 
 def build_quests_ui(user_id: int) -> dict:
     """Quest and referral payload for the mini app."""
-    from config import QUESTS_ENABLED
     from services.referrals import referral_ui_payload
 
     user = get_user(user_id) or {}
     birthday = user.get("birthday")
     has_bday = birthday_has_value(birthday)
     ref_ui = referral_ui_payload(int(user_id))
+    enabled = quests_runtime_enabled()
 
     # Birthday + referral stay; visit/combo/achievement quests hidden until re-enabled.
-    if not QUESTS_ENABLED:
+    if not enabled:
         return {
             "birthday_bonus_uah": get_birthday_bonus_uah(),
             "birthday_filled": has_bday,
@@ -498,6 +533,7 @@ def build_quests_ui(user_id: int) -> dict:
             "done": [],
             "rewards": rewards_snapshot(),
             "quests_enabled": False,
+            "campaigns": [],
         }
 
     if user.get("registered"):
@@ -611,6 +647,23 @@ def build_quests_ui(user_id: int) -> dict:
                     }
                 )
 
+    campaigns = []
+    try:
+        from database_functions.quest_campaigns_db import list_active_campaigns
+
+        campaigns = [
+            {
+                "id": c["id"],
+                "key": c.get("key"),
+                "title": c.get("title"),
+                "description": c.get("description"),
+                "ends_at": c.get("ends_at"),
+            }
+            for c in list_active_campaigns()
+        ]
+    except Exception:
+        campaigns = []
+
     return {
         "birthday_bonus_uah": get_birthday_bonus_uah(),
         "birthday_filled": has_bday,
@@ -623,4 +676,5 @@ def build_quests_ui(user_id: int) -> dict:
         "done": done,
         "rewards": rewards_snapshot(),
         "quests_enabled": True,
+        "campaigns": campaigns,
     }

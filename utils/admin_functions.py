@@ -1,5 +1,8 @@
 from datetime import datetime
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 from database_functions.admin_db import get_all_users_data, get_all_links_data, get_statistics_summary
 from database_functions.loyalty_stats_db import (
     fetch_local_bonus_balances,
@@ -8,6 +11,67 @@ from database_functions.loyalty_stats_db import (
 )
 from utils.kyiv_time import format_date_ua, format_dt_ua, now_kyiv
 import pandas as pd
+
+
+def style_excel_sheet(
+    ws,
+    *,
+    header_color: str = "35221A",
+    zebra: bool = True,
+    freeze: bool = True,
+    autofilter: bool = True,
+    column_group_colors: dict[tuple[int, int], str] | None = None,
+) -> None:
+    """Readable wide tables: header, zebra rows, freeze, filters, light borders.
+
+    column_group_colors: optional {(start_col_1based, end_col_1based): "RRGGBB"}
+    for tinted header groups (easier horizontal tracking).
+    """
+    if ws.max_row < 1 or ws.max_column < 1:
+        return
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    body_align = Alignment(vertical="center", wrap_text=False)
+    thin = Border(
+        left=Side(style="thin", color="D9D0C7"),
+        right=Side(style="thin", color="D9D0C7"),
+        top=Side(style="thin", color="D9D0C7"),
+        bottom=Side(style="thin", color="D9D0C7"),
+    )
+    default_header = PatternFill(start_color=header_color, end_color=header_color, fill_type="solid")
+    zebra_fill = PatternFill(start_color="F3EDE6", end_color="F3EDE6", fill_type="solid")
+    white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+    group_fills: dict[int, PatternFill] = {}
+    if column_group_colors:
+        for (start, end), color in column_group_colors.items():
+            fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            for col in range(int(start), int(end) + 1):
+                group_fills[col] = fill
+
+    ws.row_dimensions[1].height = 32
+    for cell in ws[1]:
+        cell.fill = group_fills.get(cell.column, default_header)
+        cell.font = header_font
+        cell.alignment = header_align
+        cell.border = thin
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+    for row_idx in range(2, max_row + 1):
+        row_fill = zebra_fill if (zebra and row_idx % 2 == 0) else white_fill
+        for col_idx in range(1, max_col + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.fill = row_fill
+            cell.border = thin
+            cell.alignment = body_align
+
+    if freeze:
+        ws.freeze_panes = "A2"
+    if autofilter and max_row >= 1:
+        ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
+    ws.sheet_view.showGridLines = False
 
 
 def format_message_text(message) -> str:
@@ -292,6 +356,48 @@ def parse_url_buttons(text):
     return buttons
 
 
+def parse_track_buttons(text: str) -> list[list[dict]]:
+    """Parse poll/track buttons for mailing engagement.
+
+    Formats:
+      Лате | Американо | Капучино   → one row
+      Лате                          → one button per line
+      Лате - latte                  → label + custom key
+
+    Returns rows of {key, label}.
+    """
+    import re
+
+    def _slug(label: str, idx: int) -> str:
+        raw = re.sub(r"[^a-zA-Zа-яА-ЯіїєґІЇЄҐ0-9]+", "_", (label or "").strip().lower())
+        raw = raw.strip("_")[:24] or f"b{idx}"
+        return raw
+
+    rows: list[list[dict]] = []
+    idx = 0
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|") if p.strip()]
+        row: list[dict] = []
+        for part in parts:
+            if " - " in part:
+                label, key = part.split(" - ", 1)
+                label, key = label.strip(), key.strip()
+            else:
+                label, key = part, ""
+            if not label:
+                continue
+            key = key or _slug(label, idx)
+            key = re.sub(r"[^a-zA-Z0-9_]", "", key)[:32] or f"b{idx}"
+            row.append({"key": key, "label": label[:64]})
+            idx += 1
+        if row:
+            rows.append(row)
+    return rows
+
+
 def generate_database_export():
     users_data, users_columns = get_all_users_data()
     links_data, links_columns = get_all_links_data()
@@ -302,77 +408,33 @@ def generate_database_export():
     current_date = datetime.now().strftime('%d.%m.%Y_%H-%M')
     filename = f'database_export_{current_date}.xlsx'
     
-    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        users_df.to_excel(writer, sheet_name='Користувачі', index=False)
-        links_df.to_excel(writer, sheet_name='Посилання', index=False)
-        
-        workbook = writer.book
-        
-        worksheet_users = writer.sheets['Користувачі']
-        
+    with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        users_df.to_excel(writer, sheet_name="Користувачі", index=False)
+        links_df.to_excel(writer, sheet_name="Посилання", index=False)
+
+        worksheet_users = writer.sheets["Користувачі"]
         column_widths = {
-            'A': 12,  # id
-            'B': 15,  # user_id
-            'C': 20,  # user_name
-            'D': 20,  # user_first_name
-            'E': 20,  # user_last_name
-            'F': 15,  # user_phone
-            'G': 10,  # language
-            'H': 20,  # join_date
-            'I': 20,  # last_activity
-            'J': 15   # ref_link
+            "A": 12,
+            "B": 15,
+            "C": 20,
+            "D": 20,
+            "E": 20,
+            "F": 15,
+            "G": 10,
+            "H": 20,
+            "I": 20,
+            "J": 15,
         }
-        
         for col, width in column_widths.items():
             worksheet_users.column_dimensions[col].width = width
-        
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=11)
-        header_alignment = Alignment(horizontal="center", vertical="center")
-        
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
-        for cell in worksheet_users[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = header_alignment
-            cell.border = thin_border
-        
-        for row in worksheet_users.iter_rows(min_row=2, max_row=worksheet_users.max_row, 
-                                             min_col=1, max_col=len(users_columns)):
-            for cell in row:
-                cell.border = thin_border
-                cell.alignment = Alignment(vertical="center")
-        
+        style_excel_sheet(worksheet_users, header_color="35221A")
+
         if not links_df.empty:
-            worksheet_links = writer.sheets['Посилання']
-            
-            link_column_widths = {
-                'A': 12,  # id
-                'B': 30,  # link_name
-                'C': 50   # link_url
-            }
-            
-            for col, width in link_column_widths.items():
+            worksheet_links = writer.sheets["Посилання"]
+            for col, width in {"A": 12, "B": 30, "C": 50}.items():
                 worksheet_links.column_dimensions[col].width = width
-            
-            for cell in worksheet_links[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_alignment
-                cell.border = thin_border
-            
-            for row in worksheet_links.iter_rows(min_row=2, max_row=worksheet_links.max_row, 
-                                                 min_col=1, max_col=len(links_columns)):
-                for cell in row:
-                    cell.border = thin_border
-                    cell.alignment = Alignment(vertical="center")
-    
+            style_excel_sheet(worksheet_links, header_color="35221A")
+
     return filename, len(users_df), len(links_df)
 
 
@@ -546,6 +608,25 @@ def generate_clients_export() -> tuple[str, int]:
                 "Крафтики заблоковано": "так" if int(r.get("bonuses_blocked") or 0) else "ні",
                 "Вітальний бонус": "так" if int(r.get("welcome_bonus_given") or 0) else "ні",
                 "Бонус ДН": "так" if int(r.get("birthday_bonus_given") or 0) else "ні",
+                "Розсилка": (
+                    "відписаний" if int(r.get("mailing_opt_out") or 0) else "підписаний"
+                ),
+                "Дата відписки": format_dt_ua(r.get("mailing_opt_out_at"), empty=""),
+                "Причина відписки": (
+                    {
+                        "user_opt_out": "Відписка від розсилки",
+                        "broadcast_button": "Кнопка в розсилці",
+                        "admin": "Адмін",
+                        "bot_blocked": "Заблокував бота",
+                        "card_deleted": "Видалив картку",
+                    }.get(
+                        (r.get("mailing_opt_out_reason") or "").strip(),
+                        r.get("mailing_opt_out_reason") or "",
+                    )
+                    if int(r.get("mailing_opt_out") or 0)
+                    else ""
+                ),
+                "Картку видалено": format_dt_ua(r.get("card_deleted_at"), empty=""),
                 "Покупок (чеків)": int(r.get("purchases_count") or 0),
                 "Витрачено грн": round(float(r.get("spent_uah") or 0), 2),
                 "Нараховано Крафтиків": round(float(r.get("bonus_earned_uah") or 0), 2),
@@ -572,22 +653,6 @@ def generate_clients_export() -> tuple[str, int]:
         df.to_excel(writer, sheet_name="Клієнти", index=False)
         ws = writer.sheets["Клієнти"]
 
-        header_fill = PatternFill(start_color="35221A", end_color="35221A", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=11)
-        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        thin_border = Border(
-            left=Side(style="thin"),
-            right=Side(style="thin"),
-            top=Side(style="thin"),
-            bottom=Side(style="thin"),
-        )
-
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = header_alignment
-            cell.border = thin_border
-
         widths = {
             "A": 14,   # Telegram ID
             "B": 16,   # Username
@@ -602,30 +667,41 @@ def generate_clients_export() -> tuple[str, int]:
             "K": 14,   # Крафтики заблоковано
             "L": 12,   # Вітальний бонус
             "M": 10,   # Бонус ДН
-            "N": 12,   # Покупок
-            "O": 14,   # Витрачено
-            "P": 16,   # Нараховано
-            "Q": 14,   # Списано
-            "R": 16,   # Крафтики на балансі
-            "S": 18,   # Баланс оновлено
-            "T": 20,   # Улюблена кавʼярня
-            "U": 28,   # Кавʼярні (усі)
-            "V": 16,   # Привів (Telegram ID)
-            "W": 20,   # Привів (імʼя)
-            "X": 16,   # Привів (телефон)
-            "Y": 12,   # Запросив друзів
-            "Z": 12,   # З них виплачено
+            "N": 14,   # Розсилка
+            "O": 18,   # Дата відписки
+            "P": 20,   # Причина відписки
+            "Q": 16,   # Картку видалено
+            "R": 12,   # Покупок
+            "S": 14,   # Витрачено
+            "T": 16,   # Нараховано
+            "U": 14,   # Списано
+            "V": 16,   # Крафтики на балансі
+            "W": 18,   # Баланс оновлено
+            "X": 20,   # Улюблена кавʼярня
+            "Y": 28,   # Кавʼярні (усі)
+            "Z": 16,   # Привів (Telegram ID)
+            "AA": 20,  # Привів (імʼя)
+            "AB": 16,  # Привів (телефон)
+            "AC": 12,  # Запросив друзів
+            "AD": 12,  # З них виплачено
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
 
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=len(df.columns) or 1):
-            for cell in row:
-                cell.border = thin_border
-                cell.alignment = Alignment(vertical="center")
-
-        ws.auto_filter.ref = ws.dimensions
-        ws.freeze_panes = "A2"
+        # Групи колонок різними відтінками шапки (легше орієнтуватись по ширині)
+        style_excel_sheet(
+            ws,
+            header_color="35221A",
+            column_group_colors={
+                (1, 6): "35221A",   # профіль / ID
+                (7, 10): "5C4033",  # дати
+                (11, 13): "6B5344",  # прапорці
+                (14, 17): "8B4513",  # розсилка / відписка
+                (18, 23): "3D5A40",  # гроші / Крафтики
+                (24, 25): "4A6741",  # кавʼярні
+                (26, 30): "3D5A80",  # реферали
+            },
+        )
 
     return filename, len(export_rows)
 

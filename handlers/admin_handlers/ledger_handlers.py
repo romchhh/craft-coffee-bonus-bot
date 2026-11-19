@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 
 from aiogram import F, Router, types
+from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
 
 from keyboards.admin_keyboards import (
@@ -262,7 +263,8 @@ async def _edit_or_send(
 
 
 @router.message(IsAdmin(), F.text == "📒 Журнал Крафтиків")
-async def ledger_hub_msg(message: types.Message):
+async def ledger_hub_msg(message: types.Message, state: FSMContext):
+    await state.clear()
     text = await asyncio.to_thread(_hub_text_sync)
     await message.answer(
         text, parse_mode="HTML", reply_markup=get_ledger_hub_keyboard()
@@ -329,10 +331,17 @@ async def _render_list(
             kb_rows.append(
                 [
                     InlineKeyboardButton(
-                        text="👤 Картка клієнта",
+                        text="◀️ До картки",
                         callback_data=f"client_view:{int(user_id)}",
                     )
                 ]
+            )
+            kb_rows.append(
+                [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")]
+            )
+        else:
+            kb_rows.append(
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="ledger_hub")]
             )
         kb_rows.append(
             [InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")]
@@ -354,9 +363,17 @@ async def _render_list(
     # Inline buttons per op (max ~8 to keep keyboard small)
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+    back_cb = f"client_view:{int(user_id)}" if user_id is not None else "ledger_hub"
+    back_label = "◀️ До картки" if user_id is not None else "◀️ Назад"
     base_kb = get_ledger_list_keyboard(
-        offset=offset, total=total, page_size=PAGE_SIZE, prefix=prefix
+        offset=offset,
+        total=total,
+        page_size=PAGE_SIZE,
+        prefix=prefix,
+        back_cb=back_cb,
+        back_label=back_label,
     )
+    view_suffix = ":c" if user_id is not None else ""
     op_rows: list[list[InlineKeyboardButton]] = []
     for row in rows[:8]:
         amt = float(row.get("amount_uah") or 0)
@@ -364,7 +381,7 @@ async def _render_list(
             [
                 InlineKeyboardButton(
                     text=f"#{row['id']} {_uah(amt)}",
-                    callback_data=f"ledger_view:{row['id']}",
+                    callback_data=f"ledger_view:{row['id']}{view_suffix}",
                 )
             ]
         )
@@ -475,7 +492,12 @@ async def ledger_bad(callback: types.CallbackQuery):
             ]
         )
     base_kb = get_ledger_list_keyboard(
-        offset=offset, total=total, page_size=PAGE_SIZE, prefix="ledger_bad"
+        offset=offset,
+        total=total,
+        page_size=PAGE_SIZE,
+        prefix="ledger_bad",
+        back_cb="ledger_hub",
+        back_label="◀️ Назад",
     )
     kb = InlineKeyboardMarkup(inline_keyboard=op_rows + list(base_kb.inline_keyboard))
     text = "\n".join(lines)
@@ -539,11 +561,14 @@ async def ledger_by_user(callback: types.CallbackQuery):
 async def ledger_view(callback: types.CallbackQuery):
     from database_functions.bonus_ledger_db import get_by_id
 
+    parts = (callback.data or "").split(":")
+    # ledger_view:123 or ledger_view:123:c (з картки клієнта)
     try:
-        op_id = int((callback.data or "").split(":")[-1])
-    except ValueError:
+        op_id = int(parts[1])
+    except (ValueError, IndexError):
         await callback.answer("Невірний id", show_alert=True)
         return
+    from_client = len(parts) > 2 and parts[2] == "c"
     row = await asyncio.to_thread(get_by_id, op_id)
     if not row:
         await callback.answer("Не знайдено", show_alert=True)
@@ -551,7 +576,9 @@ async def ledger_view(callback: types.CallbackQuery):
     uid = int(row["user_id"]) if row.get("user_id") else None
     text = await asyncio.to_thread(_format_op_detail, row)
     await _edit_or_send(
-        callback.message, text, get_ledger_op_keyboard(op_id, uid)
+        callback.message,
+        text,
+        get_ledger_op_keyboard(op_id, uid, from_client=from_client),
     )
     await callback.answer()
 
@@ -564,7 +591,6 @@ async def ledger_export(callback: types.CallbackQuery):
     )
 
     def _build() -> tuple[str, int]:
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
         import pandas as pd
 
         from database_functions.bonus_ledger_db import (
@@ -573,6 +599,7 @@ async def ledger_export(callback: types.CallbackQuery):
             iter_for_export,
         )
         from database_functions.client_db import get_user
+        from utils.admin_functions import style_excel_sheet
 
         rows = iter_for_export(limit=20000)
         export = []
@@ -623,21 +650,39 @@ async def ledger_export(callback: types.CallbackQuery):
         with pd.ExcelWriter(filename, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Журнал", index=False)
             ws = writer.sheets["Журнал"]
-            fill = PatternFill(start_color="35221A", end_color="35221A", fill_type="solid")
-            font = Font(bold=True, color="FFFFFF", size=11)
-            thin = Border(
-                left=Side(style="thin"),
-                right=Side(style="thin"),
-                top=Side(style="thin"),
-                bottom=Side(style="thin"),
+            widths = {
+                "A": 8,
+                "B": 18,
+                "C": 18,
+                "D": 12,
+                "E": 28,
+                "F": 14,
+                "G": 12,
+                "H": 22,
+                "I": 14,
+                "J": 18,
+                "K": 14,
+                "L": 14,
+                "M": 12,
+                "N": 12,
+                "O": 12,
+                "P": 24,
+                "Q": 12,
+                "R": 16,
+            }
+            for col, width in widths.items():
+                ws.column_dimensions[col].width = width
+            style_excel_sheet(
+                ws,
+                header_color="35221A",
+                column_group_colors={
+                    (1, 3): "35221A",   # id / дати
+                    (4, 8): "5C4033",   # сума / тип
+                    (9, 12): "3D5A80",  # клієнт
+                    (13, 15): "3D5A40",  # баланси
+                    (16, 18): "6B5344",  # службові
+                },
             )
-            for cell in ws[1]:
-                cell.fill = fill
-                cell.font = font
-                cell.alignment = Alignment(horizontal="center", wrap_text=True)
-                cell.border = thin
-            ws.auto_filter.ref = ws.dimensions
-            ws.freeze_panes = "A2"
         return filename, len(export)
 
     try:

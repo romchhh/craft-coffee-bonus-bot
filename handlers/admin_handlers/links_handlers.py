@@ -12,9 +12,12 @@ router = Router()
 
 
 @router.message(IsAdmin(), F.text == "Посилання")
-async def manage_links(message: types.Message):
-    await message.answer("Оберіть посилання для перегляду статистики або додайте нове:", 
-                        reply_markup=get_links_keyboard())
+async def manage_links(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "Оберіть посилання для перегляду статистики або додайте нове:",
+        reply_markup=get_links_keyboard(),
+    )
 
 
 @router.callback_query(IsAdmin(), F.data.startswith("link_stats_"))

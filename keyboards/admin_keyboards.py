@@ -26,6 +26,7 @@ def get_ledger_hub_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⚠️ Незавершені / помилки", callback_data="ledger_bad:0")],
             [InlineKeyboardButton(text="🏷 Фільтр за типом", callback_data="ledger_reasons")],
             [InlineKeyboardButton(text="📊 Excel журналу", callback_data="ledger_export")],
+            [InlineKeyboardButton(text="👤 До клієнтів", callback_data="clients_hub")],
         ]
     )
 
@@ -36,8 +37,10 @@ def get_ledger_list_keyboard(
     total: int,
     page_size: int,
     prefix: str = "ledger_list",
+    back_cb: str | None = None,
+    back_label: str = "◀️ Назад",
 ) -> InlineKeyboardMarkup:
-    """prefix examples: ledger_list | ledger_admin | ledger_bad | ledger_reason:cashback"""
+    """prefix examples: ledger_list | ledger_admin | ledger_bad | ledger_reason:cashback | ledger_user:UID"""
     rows: list[list[InlineKeyboardButton]] = []
     nav: list[InlineKeyboardButton] = []
     if offset > 0:
@@ -62,6 +65,8 @@ def get_ledger_list_keyboard(
         )
     if nav:
         rows.append(nav)
+    if back_cb:
+        rows.append([InlineKeyboardButton(text=back_label, callback_data=back_cb)])
     rows.append(
         [InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")]
     )
@@ -88,23 +93,41 @@ def get_ledger_reasons_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_ledger_op_keyboard(op_id: int, user_id: int | None) -> InlineKeyboardMarkup:
+def get_ledger_op_keyboard(
+    op_id: int,
+    user_id: int | None,
+    *,
+    from_client: bool = False,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if user_id:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="👤 Картка клієнта",
-                    callback_data=f"client_view:{user_id}",
-                ),
-                InlineKeyboardButton(
-                    text="📒 Операції клієнта",
+                    text="◀️ До операцій клієнта",
                     callback_data=f"ledger_user:{user_id}:0",
-                ),
+                )
             ]
         )
-    rows.append([InlineKeyboardButton(text="◀️ До журналу", callback_data="ledger_list:0")])
-    rows.append([InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="👤 Картка клієнта",
+                    callback_data=f"client_view:{user_id}",
+                )
+            ]
+        )
+    if from_client:
+        rows.append(
+            [InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")]
+        )
+    else:
+        rows.append(
+            [InlineKeyboardButton(text="◀️ До списку журналу", callback_data="ledger_list:0")]
+        )
+        rows.append(
+            [InlineKeyboardButton(text="🏠 Журнал", callback_data="ledger_hub")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -119,6 +142,7 @@ def get_clients_hub_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🆕 Останні зареєстровані", callback_data="clients_recent")],
             [InlineKeyboardButton(text="🚫 З блокуванням Крафтиків", callback_data="clients_blocked")],
             [InlineKeyboardButton(text="⚠️ Аномалії", callback_data="clients_anomalies")],
+            [InlineKeyboardButton(text="📒 Журнал Крафтиків", callback_data="ledger_hub")],
         ]
     )
 
@@ -327,12 +351,12 @@ def get_clients_list_keyboard(
     if offset > 0:
         prev_off = max(0, offset - page_size)
         nav.append(
-            InlineKeyboardButton(text="⬅️ Назад", callback_data=f"clients_list:{sort}:{prev_off}")
+            InlineKeyboardButton(text="⬅️", callback_data=f"clients_list:{sort}:{prev_off}")
         )
     if offset + page_size < total:
         nav.append(
             InlineKeyboardButton(
-                text="Далі ➡️", callback_data=f"clients_list:{sort}:{offset + page_size}"
+                text="➡️", callback_data=f"clients_list:{sort}:{offset + page_size}"
             )
         )
     if nav:
@@ -346,7 +370,7 @@ def get_clients_list_keyboard(
     rows.append(
         [InlineKeyboardButton(text="🧹 Скинути фільтри", callback_data="clients_clear_filters")]
     )
-    rows.append([InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -416,7 +440,7 @@ def get_referrals_browse_keyboard(items: list[dict], *, offset: int, has_more: b
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="⏳ На перевірці", callback_data="referral_review_list")])
-    rows.append([InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -436,6 +460,7 @@ def get_loyalty_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Досягнення 30 днів", callback_data="loyalty_edit:ach_days_30_reward_uah")],
             [InlineKeyboardButton(text="🔄 Оновити", callback_data="loyalty_refresh")],
             [InlineKeyboardButton(text="👥 Реферали на перевірці", callback_data="referral_review_list")],
+            [InlineKeyboardButton(text="👤 До клієнтів", callback_data="clients_hub")],
         ]
     )
 
@@ -463,6 +488,8 @@ def get_referral_review_keyboard(items: list[dict]) -> InlineKeyboardMarkup:
             ]
         )
     rows.append([InlineKeyboardButton(text="🔄 Оновити", callback_data="referral_review_list")])
+    rows.append([InlineKeyboardButton(text="◀️ Хто кого привів", callback_data="clients_refs:0")])
+    rows.append([InlineKeyboardButton(text="🏠 Меню клієнтів", callback_data="clients_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -472,6 +499,7 @@ def get_export_database_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="♻️ Оновити баланси з Poster", callback_data="stats_refresh_poster")],
         [InlineKeyboardButton(text="⚠️ Аномалії лояльності", callback_data="clients_anomalies")],
         [InlineKeyboardButton(text="💾 Бекап БД зараз", callback_data="backup_db_now")],
+        [InlineKeyboardButton(text="👤 До клієнтів", callback_data="clients_hub")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
 
@@ -479,19 +507,35 @@ def get_export_database_keyboard() -> InlineKeyboardMarkup:
 # BROADCAST KEYBOARD
 def get_broadcast_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton(text="Зробити розсилку", callback_data="create_post")]
+        [InlineKeyboardButton(text="Зробити розсилку", callback_data="create_post")],
+        [InlineKeyboardButton(text="📊 Історія розсилок", callback_data="mailing_history")],
+        [InlineKeyboardButton(text="🎯 Квести / акції", callback_data="quests_admin")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def create_post(user_data: dict, user_id: str, url_buttons: list = None) -> InlineKeyboardMarkup:
     inline_kb_list = []
-    
+    data = user_data.get(user_id, {}) if isinstance(user_data, dict) else {}
+    url_buttons = url_buttons if url_buttons is not None else data.get("url_buttons")
+    track_rows = data.get("track_buttons") or []
+
     if url_buttons:
         for row in url_buttons:
             inline_kb_list.append([
                 InlineKeyboardButton(text=button_text, url=button_url) for button_text, button_url in row
             ])
+    if track_rows:
+        for row in track_rows:
+            inline_kb_list.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"📊 {b.get('label') or b.get('key')}",
+                        callback_data="mailing_noop",
+                    )
+                    for b in row
+                ]
+            )
 
     inline_kb_list.append([
         InlineKeyboardButton(text="Медіа", callback_data=f"media_"),
@@ -499,11 +543,12 @@ def create_post(user_data: dict, user_id: str, url_buttons: list = None) -> Inli
     ])
 
     inline_kb_list.append([
-        InlineKeyboardButton(text="🔔" if user_data.get(user_id, {}).get('bell', 0) == 1 else "🔕", callback_data=f"bell_"),
+        InlineKeyboardButton(text="🔔" if data.get('bell', 0) == 1 else "🔕", callback_data=f"bell_"),
         InlineKeyboardButton(text="URL-кнопки", callback_data=f"url_buttons_")
     ])
-
-    
+    inline_kb_list.append([
+        InlineKeyboardButton(text="📊 Кнопки-опитування", callback_data="track_buttons_")
+    ])
 
     inline_kb_list.append([
         InlineKeyboardButton(text="← Відміна", callback_data=f"back_to"),
@@ -511,6 +556,46 @@ def create_post(user_data: dict, user_id: str, url_buttons: list = None) -> Inli
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
+
+
+def get_mailing_audience_keyboard(data: dict | None = None) -> InlineKeyboardMarkup:
+    data = data or {}
+    audience = data.get("audience") or "all"
+    spots = data.get("audience_spots") or []
+    products = data.get("audience_products") or []
+    days_min = data.get("audience_days_min")
+    days_max = data.get("audience_days_max")
+
+    def mark(key: str) -> str:
+        return "✅ " if audience == key else ""
+
+    spot_label = "📍 Кавʼярні"
+    if spots:
+        spot_label += f" · {len(spots)}"
+    prod_label = "☕ Напої / десерти"
+    if products:
+        prod_label += f" · {len(products)}"
+    days_label = "⏱ Час у програмі"
+    if days_min is not None or days_max is not None:
+        lo = days_min if days_min is not None else "…"
+        hi = days_max if days_max is not None else "…"
+        days_label += f" · {lo}–{hi} дн."
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"{mark('all')}Усім підписаним", callback_data="mail_aud:all")],
+            [InlineKeyboardButton(text=f"{mark('test')}🧪 Тест (адміни)", callback_data="mail_aud:test")],
+            [InlineKeyboardButton(text=f"{mark('segment')}🎯 Сегмент (фільтри)", callback_data="mail_aud:segment")],
+            [
+                InlineKeyboardButton(text=spot_label, callback_data="mail_aud_spots"),
+                InlineKeyboardButton(text=prod_label, callback_data="mail_aud_products"),
+            ],
+            [InlineKeyboardButton(text=days_label, callback_data="mail_aud_days")],
+            [InlineKeyboardButton(text="🧹 Скинути фільтри", callback_data="mail_aud_clear")],
+            [InlineKeyboardButton(text="→ До підтвердження", callback_data="mail_aud_done")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to")],
+        ]
+    )
 
 
 def publish_post() -> InlineKeyboardMarkup:
@@ -535,9 +620,21 @@ def back_mailing_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list)
 
-def post_keyboard(user_data: dict, user_id: str, url_buttons: list = None) -> InlineKeyboardMarkup:
+def post_keyboard(
+    user_data: dict,
+    user_id: str,
+    url_buttons: list = None,
+    *,
+    track_buttons: list | None = None,
+    job_id: int | None = None,
+) -> InlineKeyboardMarkup | None:
     """Buttons under a broadcast post. Unsubscribe is only in client «ℹ️ Інфо»."""
     inline_kb_list = []
+    data = user_data.get(user_id, {}) if isinstance(user_data, dict) else {}
+    url_buttons = url_buttons if url_buttons is not None else data.get("url_buttons")
+    track_buttons = (
+        track_buttons if track_buttons is not None else data.get("track_buttons")
+    )
     if url_buttons:
         for row in url_buttons:
             inline_kb_list.append(
@@ -546,7 +643,88 @@ def post_keyboard(user_data: dict, user_id: str, url_buttons: list = None) -> In
                     for button_text, button_url in row
                 ]
             )
+    if track_buttons and job_id is not None:
+        for row in track_buttons:
+            inline_kb_list.append(
+                [
+                    InlineKeyboardButton(
+                        text=b.get("label") or b.get("key") or "·",
+                        callback_data=f"mb:{int(job_id)}:{b.get('key')}",
+                    )
+                    for b in row
+                    if b.get("key")
+                ]
+            )
+    elif track_buttons:
+        # Preview during compose (non-clickable look-alike)
+        for row in track_buttons:
+            inline_kb_list.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"📊 {b.get('label') or b.get('key')}",
+                        callback_data="mailing_noop",
+                    )
+                    for b in row
+                ]
+            )
     return InlineKeyboardMarkup(inline_keyboard=inline_kb_list) if inline_kb_list else None
+
+
+def mailing_job_history_keyboard(jobs: list[dict]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for job in jobs[:12]:
+        jid = int(job["id"])
+        status = job.get("status") or "?"
+        sent = int(job.get("sent") or 0)
+        total = int(job.get("total") or 0)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"#{jid} · {sent}/{total} · {status}",
+                    callback_data=f"mailing_job:{jid}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_posts")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quests_admin_keyboard(campaigns: list[dict]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for c in campaigns[:15]:
+        cid = int(c["id"])
+        status = c.get("status") or "?"
+        title = (c.get("title") or c.get("key") or f"#{cid}")[:40]
+        mark = {"active": "🟢", "draft": "⚪", "ended": "⚫"}.get(status, "·")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{mark} {title}",
+                    callback_data=f"quest_camp:{cid}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_posts")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quest_campaign_actions_keyboard(campaign: dict) -> InlineKeyboardMarkup:
+    cid = int(campaign["id"])
+    status = campaign.get("status") or ""
+    rows: list[list[InlineKeyboardButton]] = []
+    if status != "active":
+        rows.append(
+            [InlineKeyboardButton(text="▶️ Запустити", callback_data=f"quest_camp_on:{cid}")]
+        )
+    if status == "active":
+        rows.append(
+            [InlineKeyboardButton(text="⏹ Зупинити", callback_data=f"quest_camp_off:{cid}")]
+        )
+    rows.append(
+        [InlineKeyboardButton(text="📊 Статистика", callback_data=f"quest_camp_stats:{cid}")]
+    )
+    rows.append([InlineKeyboardButton(text="◀️ До списку", callback_data="quests_admin")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # LINKS KEYBOARD

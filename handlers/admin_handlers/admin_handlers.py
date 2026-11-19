@@ -26,6 +26,7 @@ from keyboards.client_keyboards import get_start_keyboard
 from main import bot
 from states.admin_states import LoyaltySettings
 from utils.admin_functions import format_statistics_message, generate_database_export
+from utils.admin_menu import ADMIN_MENU_TEXTS
 from utils.filters import IsAdmin
 
 
@@ -70,7 +71,8 @@ def _loyalty_text() -> str:
 
 
 @router.message(IsAdmin(), F.text.in_(["👨‍💻 Адмін панель", "Адмін панель 💻", "/admin"]))
-async def admin_panel(message: types.Message):
+async def admin_panel(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("Вітаю в адмін панелі. Ось ваші доступні опції.", reply_markup=admin_keyboard())
 
 
@@ -87,7 +89,8 @@ async def my_parcel(message: types.Message, state: FSMContext):
 
 
 @router.message(IsAdmin(), F.text.in_(["Статистика"]))
-async def statistic_handler(message: types.Message):
+async def statistic_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     # Local DB only — never blocks on live Poster N× API.
     response_message = await asyncio.to_thread(format_statistics_message)
     await message.answer(
@@ -213,7 +216,7 @@ async def loyalty_edit_support(callback: types.CallbackQuery, state: FSMContext)
     await callback.answer()
 
 
-@router.message(IsAdmin(), LoyaltySettings.support_username)
+@router.message(IsAdmin(), LoyaltySettings.support_username, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def loyalty_save_support(message: types.Message, state: FSMContext):
     from keyboards.admin_keyboards import get_support_confirm_keyboard
 
@@ -243,7 +246,7 @@ async def loyalty_save_support(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(IsAdmin(), LoyaltySettings.edit_reward)
+@router.message(IsAdmin(), LoyaltySettings.edit_reward, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def loyalty_save_reward(message: types.Message, state: FSMContext):
     data = await state.get_data()
     key = data.get("reward_key")
@@ -273,7 +276,7 @@ async def loyalty_save_reward(message: types.Message, state: FSMContext):
     await message.answer(_loyalty_text(), parse_mode="HTML", reply_markup=get_loyalty_settings_keyboard())
 
 
-@router.message(IsAdmin(), LoyaltySettings.cashback_percent)
+@router.message(IsAdmin(), LoyaltySettings.cashback_percent, F.text, ~F.text.in_(ADMIN_MENU_TEXTS))
 async def loyalty_save_cashback(message: types.Message, state: FSMContext):
     raw = (message.text or "").replace(",", ".").strip()
     try:
@@ -281,7 +284,10 @@ async def loyalty_save_cashback(message: types.Message, state: FSMContext):
         if value < 0 or value > 100:
             raise ValueError
     except ValueError:
-        await message.answer("Введи відсоток від 0 до 100.")
+        await message.answer(
+            "Введи відсоток від 0 до 100.\n"
+            "Або натисни пункт адмін-меню, щоб скасувати.",
+        )
         return
     set_cashback_percent(value)
     await state.clear()
@@ -323,11 +329,12 @@ def _referral_review_text(items: list) -> str:
 
 
 @router.message(IsAdmin(), F.text == "👥 Реферали")
-async def referral_review_menu(message: types.Message):
+async def referral_review_menu(message: types.Message, state: FSMContext):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     from database_functions.referrals_db import list_owner_review
 
+    await state.clear()
     items = list_owner_review()
     kb = get_referral_review_keyboard(items)
     # prepend browse-all referrals

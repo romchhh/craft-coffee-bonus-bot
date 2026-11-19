@@ -40,7 +40,8 @@ def _admin_list_header_text(is_super: bool) -> str:
 
 
 @router.message(IsAdmin(), F.text.in_(["Адміністратори"]))
-async def admin_list(message: types.Message):
+async def admin_list(message: types.Message, state: FSMContext):
+    await state.clear()
     user_id = message.from_user.id
     is_super = is_superadmin(user_id)
 

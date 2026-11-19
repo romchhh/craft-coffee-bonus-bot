@@ -11,6 +11,7 @@ from database_functions.wallet_passes_db import create_wallet_passes_tables
 from database_functions.bonus_ledger_db import create_bonus_ledger_tables
 from database_functions.mailing_jobs_db import create_mailing_jobs_tables
 from database_functions.anomaly_alerts_db import create_anomaly_alerts_tables
+from database_functions.quest_campaigns_db import create_quest_campaigns_tables
 from config import administrators
 
 
@@ -19,6 +20,7 @@ def create_dbs():
     create_settings_table()
     migrate_loyalty_columns()
     create_quests_tables()
+    create_quest_campaigns_tables()
     create_referrals_table()
     create_promo_menu_table()
     create_spots_table()

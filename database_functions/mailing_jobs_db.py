@@ -53,6 +53,22 @@ def create_mailing_jobs_tables() -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_mailing_rec_job_status ON mailing_job_recipients(job_id, status)"
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mailing_button_clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            btn_key TEXT NOT NULL,
+            btn_label TEXT,
+            user_id INTEGER NOT NULL,
+            clicked_at TEXT,
+            UNIQUE(job_id, btn_key, user_id)
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mailing_clicks_job ON mailing_button_clicks(job_id)"
+    )
     conn.commit()
 
 
@@ -165,3 +181,69 @@ def job_stats(job_id: int) -> dict:
         "failed": int(job.get("failed") or 0),
         "skipped": int(job.get("skipped") or 0),
     }
+
+
+def list_recent_jobs(*, limit: int = 15) -> list[dict]:
+    rows = cursor.execute(
+        """
+        SELECT * FROM mailing_jobs
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def record_button_click(
+    job_id: int,
+    btn_key: str,
+    user_id: int,
+    *,
+    btn_label: str | None = None,
+) -> bool:
+    """Return True if this is the first click by this user on this button."""
+    now = kyiv_now_str()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO mailing_button_clicks (job_id, btn_key, btn_label, user_id, clicked_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(job_id), str(btn_key), (btn_label or "")[:80], int(user_id), now),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+
+
+def button_click_stats(job_id: int) -> list[dict]:
+    rows = cursor.execute(
+        """
+        SELECT
+            btn_key,
+            COALESCE(MAX(btn_label), btn_key) AS btn_label,
+            COUNT(*) AS clicks,
+            COUNT(DISTINCT user_id) AS unique_users
+        FROM mailing_button_clicks
+        WHERE job_id = ?
+        GROUP BY btn_key
+        ORDER BY unique_users DESC, btn_key
+        """,
+        (int(job_id),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def total_unique_clickers(job_id: int) -> int:
+    row = cursor.execute(
+        """
+        SELECT COUNT(DISTINCT user_id) AS n
+        FROM mailing_button_clicks
+        WHERE job_id = ?
+        """,
+        (int(job_id),),
+    ).fetchone()
+    return int(row["n"] or 0) if row else 0
