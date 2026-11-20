@@ -637,6 +637,7 @@ def generate_clients_export() -> tuple[str, int]:
                 "Баланс оновлено": format_dt_ua(r.get("last_known_bonus_at"), empty=""),
                 "Улюблена кавʼярня": r.get("top_spot") or "",
                 "Кавʼярні (усі)": r.get("spots_visited") or "",
+                "Адмін-посилання": r.get("admin_link_name") or "",
                 "Привів (Telegram ID)": r.get("referred_by_user_id") or "",
                 "Привів (імʼя)": referrer_label,
                 "Привів (телефон)": r.get("referrer_phone") or "",
@@ -679,11 +680,12 @@ def generate_clients_export() -> tuple[str, int]:
             "W": 18,   # Баланс оновлено
             "X": 20,   # Улюблена кавʼярня
             "Y": 28,   # Кавʼярні (усі)
-            "Z": 16,   # Привів (Telegram ID)
-            "AA": 20,  # Привів (імʼя)
-            "AB": 16,  # Привів (телефон)
-            "AC": 12,  # Запросив друзів
-            "AD": 12,  # З них виплачено
+            "Z": 18,   # Адмін-посилання
+            "AA": 16,  # Привів (Telegram ID)
+            "AB": 20,  # Привів (імʼя)
+            "AC": 16,  # Привів (телефон)
+            "AD": 12,  # Запросив друзів
+            "AE": 12,  # З них виплачено
         }
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
@@ -699,7 +701,8 @@ def generate_clients_export() -> tuple[str, int]:
                 (14, 17): "8B4513",  # розсилка / відписка
                 (18, 23): "3D5A40",  # гроші / Крафтики
                 (24, 25): "4A6741",  # кавʼярні
-                (26, 30): "3D5A80",  # реферали
+                (26, 26): "6B3A5A",  # адмін-посилання (Замок, Крафт5…)
+                (27, 31): "3D5A80",  # реферали (хто привів / кого запросив)
             },
         )
 

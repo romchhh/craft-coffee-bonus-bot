@@ -400,6 +400,8 @@ def iter_clients_stats_for_export() -> list[dict[str, Any]]:
             u.last_known_bonus,
             u.last_known_bonus_at,
             u.referred_by_user_id,
+            u.ref_link,
+            lnk.link_name AS admin_link_name,
             COALESCE((
                 SELECT SUM(pt.payed_sum_uah) FROM processed_transactions pt
                 WHERE pt.telegram_user_id = u.user_id
@@ -441,6 +443,7 @@ def iter_clients_stats_for_export() -> list[dict[str, Any]]:
             ref_u.user_phone AS referrer_phone
         FROM users u
         LEFT JOIN users ref_u ON ref_u.user_id = u.referred_by_user_id
+        LEFT JOIN links lnk ON lnk.id = u.ref_link
         WHERE u.registered = 1
         ORDER BY COALESCE(u.join_date, '') DESC, u.user_id DESC
         """

@@ -280,6 +280,16 @@ def _build_client_card_sync(
 
     ref_lines = ""
     try:
+        admin_link_id = user.get("ref_link")
+        if admin_link_id:
+            try:
+                from database_functions.links_db import get_link_by_id
+
+                link_row = get_link_by_id(int(admin_link_id))
+                link_name = (link_row[0] if link_row else None) or f"#{admin_link_id}"
+            except Exception:
+                link_name = f"#{admin_link_id}"
+            ref_lines += f"Адмін-посилання: <b>{_esc(link_name)}</b>\n"
         brought_by = get_referrer_for_friend(uid)
         if brought_by:
             rid = brought_by.get("referrer_user_id")
